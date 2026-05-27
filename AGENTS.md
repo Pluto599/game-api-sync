@@ -8,7 +8,7 @@
 ## 拉取 Wiki 节点列表
 
 ```powershell
-curl -H "Authorization: Bearer $env:API_SYNC_TOKEN" "$env:API_SYNC_BASE/api/wiki-nodes"
+Invoke-RestMethod -Headers @{ Authorization = "Bearer $env:API_SYNC_TOKEN" } "$env:API_SYNC_BASE/api/wiki-nodes"
 ```
 
 ## 对齐代码（在 Cursor 中说）

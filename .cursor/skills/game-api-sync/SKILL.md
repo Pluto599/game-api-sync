@@ -40,7 +40,7 @@ $uri = "$env:API_SYNC_BASE/api/snapshot?module=$([uri]::EscapeDataString($module
 Invoke-RestMethod -Headers $h $uri | ConvertTo-Json -Depth 20 | Out-File -Encoding utf8 "$env:TEMP\api-snapshot-$module.json"
 ```
 
-3. **读路径映射**：打开本仓库内 `config/wiki-registry.yaml`（若不存在，从 [game-api-sync](https://github.com/Pluto599/game-api-sync) 复制 `module_map` 中对应模块的 `client_glob` 或 `server_glob`）。
+3. **读路径映射**：打开本仓库根目录 `config/wiki-registry.yaml` 中对应模块的 `client_glob` 或 `server_glob`（若缺失，从中央仓 [game-api-sync](https://github.com/Pluto599/game-api-sync) 复制该文件到 `config/`）。
 
 4. **定位现有源文件**：用 glob 搜索**已有**协议文件，**禁止**新建 `Generated/` 或平行目录。
 
