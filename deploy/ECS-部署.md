@@ -1,14 +1,14 @@
 # ECS 部署（最简）
 
 公网 IP：`120.27.249.20`  
-仓库：`https://github.com/ranshaobaichi/game-api-sync`
+仓库：`https://github.com/Pluto599/game-api-sync`（public，用 HTTPS，无需 SSH 密钥）
 
 ## 1. 克隆并安装
 
 ```bash
 cd /tmp
 rm -rf game-api-sync
-git clone https://github.com/ranshaobaichi/game-api-sync.git
+git clone https://github.com/Pluto599/game-api-sync.git
 bash /tmp/game-api-sync/deploy/install-to-ecs.sh /tmp/game-api-sync
 ```
 

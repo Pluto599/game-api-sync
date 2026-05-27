@@ -4,7 +4,12 @@
 
 ## 1. 上传代码到 ECS
 
-在本机 PowerShell（将 `game-api-sync` 打成 zip 或用 scp）。若无 scp，可在 ECS 上 `git clone` 你的 GitHub 仓库。
+在本机 PowerShell（将 `game-api-sync` 打成 zip 或用 scp）。若无 scp，在 ECS 上用 HTTPS 克隆（public，不要用 `git@github.com`，避免 SSH 密钥与 host 确认）：
+
+```bash
+cd /tmp && rm -rf game-api-sync
+git clone https://github.com/Pluto599/game-api-sync.git
+```
 
 **简易方式 — 本机用 scp（若已配置 SSH）：**
 
