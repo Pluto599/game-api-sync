@@ -1,12 +1,12 @@
 # game-api-sync
 
-飞书 Wiki 为权威接口文档。中央服务在 ECS，成员**无需安装 lark-cli**。
+飞书 Wiki 为权威接口文档。中央服务在 ECS，无需安装 lark-cli。
 
 仓库：<https://github.com/Pluto599/game-api-sync>
 
 ---
 
-## 一、配置（一次性完成）
+## 一、配置
 
 ### 1. 环境变量
 
@@ -99,7 +99,7 @@ Invoke-RestMethod -Headers $h "$env:API_SYNC_BASE/api/snapshot/modules"
 - `AGENTS.md`
 - `config/wiki-registry.yaml`
 
-PowerShell 示例（先改两个变量）：
+PowerShell 示例：
 
 ```powershell
 $CentralRepo = "<你的路径>/game-api-sync"
@@ -136,11 +136,19 @@ foreach ($rel in $items) {
 
 ---
 
-## 二、配置完成后：三种用法
+## 二、配置完成后的三种用法（v2 方案）
 
-下面三项是 ECS 中央服务提供的 HTTP 接口（统称「API」= 用 URL 访问的能力，不是要你写代码注册接口）。在 PowerShell 里用 `Invoke-RestMethod` 调用即可；IDE 里的 Agent 也会用同一地址拉数据。
+与《飞书权威接口文档 · API 智能体实施计划（v2）》一致，成员侧只有三条主流程：
 
-需鉴权的请求都要带请求头：`Authorization: Bearer <API_SYNC_TOKEN>`。下面示例统一先设：
+| 功能 | 方向 | 谁触发 | 是否自动开 PR |
+|------|------|--------|----------------|
+| **A** 文档 → 代码 | 飞书改文档后，代码跟上文档 | 开发者在 IDE 主动 | **否** |
+| **B** PR Review | 提 PR 前检查代码与文档是否一致 | 开 PR 时 GitHub Actions | **否**（只评论） |
+| **C** 代码 → 文档 | 改完代码后，把变更写成飞书草稿 | 开发者在 IDE 主动 | **否**（飞书 callout 待审核） |
+
+共同约束：**不**在本机跑 `lark-cli`；**不**新建 `Generated/`；协议文件在**当前分支就地修改**。
+
+鉴权请求需带头：`Authorization: Bearer $env:API_SYNC_TOKEN`。PowerShell 示例先设：
 
 ```powershell
 $h = @{ Authorization = "Bearer $env:API_SYNC_TOKEN" }
@@ -148,72 +156,65 @@ $h = @{ Authorization = "Bearer $env:API_SYNC_TOKEN" }
 
 ---
 
-### 功能一：检查服务是否正常
+### 功能 A：文档改完后 — 在 IDE 主动对齐代码
 
-**做什么**：确认 ECS 上的同步服务在线。  
-**何时用**：环境变量刚配好、或怀疑连不上时。  
-**怎么做**：
+**场景**：有人在飞书更新了「战斗」等模块的接口说明；ECS 刷新该模块快照（定时或后续由 webhook 触发）；群里 Bot 提醒「请在 IDE 对齐代码」（**不会**自动开 PR）。
 
-```powershell
-Invoke-RestMethod "$env:API_SYNC_BASE/health"
-```
+**你怎么做**（client / server **各自仓库、各自分支**，互不影响）：
 
-返回 `ok : True` 即正常。此接口**不需要** Token。
+1. `git checkout` 到你要提交的功能分支（例如 `feature/battle-v2`）。
+2. 打开 **client** 或 **server** 仓库（一次只对一个仓）。
+3. 在 Cursor / Copilot / Rider 中说：
 
----
+   > 根据最新飞书接口文档，对齐本仓库战斗模块代码
 
-### 功能二：查看已有文档快照的模块列表
+4. Agent 按 Skill / `AGENTS.md` 执行：
+   - `GET $env:API_SYNC_BASE/api/snapshot?module=战斗` 取文档解析结果（AST/字段列表）；
+   - 读本仓 `config/wiki-registry.yaml` 的 `client_glob` 或 `server_glob`，定位**已有** `.cs` / `.h` 等文件；
+   - 就地改 struct / enum / 序列化逻辑，**不**创建 `Generated/`；
+   - 输出变更摘要；由你自行 `git commit`（是否开 PR 由你决定）。
+5. 另一端的同事在 **server**（或 client）仓库、**自己的分支**上重复同样流程。
 
-**做什么**：看中央服务已经为哪些游戏模块生成了「飞书文档解析结果」缓存（如战斗、地图等）。  
-**何时用**：对齐代码前确认模块名拼写；或 404 时检查是否尚未刷新快照。  
-**怎么做**：
-
-```powershell
-Invoke-RestMethod -Headers $h "$env:API_SYNC_BASE/api/snapshot/modules"
-```
-
-返回里的 `modules` 数组即为可用模块名；对齐代码时 `module=` 必须与这里一致。
-
-**可选**：查看 Wiki 节点缓存文件列表（一般由管理员维护，开发较少用）：
-
-```powershell
-Invoke-RestMethod -Headers $h "$env:API_SYNC_BASE/api/wiki-nodes"
-```
-
----
-
-### 功能三：拉取某模块文档快照，并在 IDE 中对齐代码
-
-**做什么**：获取指定模块的接口文档 + 类型约束解析结果（JSON），供你对照修改**现有**协议源文件。  
-**何时用**：飞书文档已更新，要在当前分支把 client/server 代码改到与文档一致。  
-**怎么做**：
-
-**3a. 手动查看快照（可选）**
+**可选：手动拉快照核对**（PowerShell）：
 
 ```powershell
 Invoke-RestMethod -Headers $h "$env:API_SYNC_BASE/api/snapshot?module=战斗"
 ```
 
-将输出存文件便于阅读：
+模块名须与 `GET .../api/snapshot/modules` 返回一致（配置阶段已验证连通）。
 
-```powershell
-Invoke-RestMethod -Headers $h "$env:API_SYNC_BASE/api/snapshot?module=战斗" |
-  ConvertTo-Json -Depth 20 |
-  Out-File -Encoding utf8 "$env:TEMP\snapshot-战斗.json"
-```
+**当前能力**：ECS 快照 API、IDE 规则已可用；飞书群 Bot 变更通知待后续上线（未通知时，你知道文档已改即可直接做第 3 步）。
 
-**3b. 在 IDE 中让 Agent 对齐（推荐）**
+---
 
-1. 打开 **client** 或 **server** 仓库，切到你要提交的分支。  
-2. 确认已完成「一、配置」中的规则复制与 `wiki-registry.yaml` 路径。  
-3. 在 Cursor / Copilot / Rider 中说：
+### 功能 B：提 PR 前 — 自动 API Review
 
-   > 根据最新飞书接口文档，对齐本仓库【战斗】模块的协议代码
+**场景**：你在 client 或 server 开 Pull Request；CI 把 PR 信息发给 ECS；ECS 对比**飞书最新快照**与 **PR 分支上的协议代码**，在 PR 下留言差异报告（缺字段、类型不一致等）。
 
-4. Agent 会请求同一快照 URL，按 `config/wiki-registry.yaml` 的 glob 修改已有文件（**不**新建 `Generated/`）。  
-5. 你 review 后自行 `git commit` / 开 PR。
+**你怎么做**：
 
-**禁止**：本机运行 `lark-cli`；依赖 Bot 自动开 PR。
+1. 照常开发、commit，向 GitHub 开 PR。
+2. 等待 Actions 跑完，查看 PR 里的 **API Review** 评论。
+3. 按评论改代码或先去飞书改文档，再 push；**Bot 不会改你的代码，也不会开 PR**。
+
+**当前能力**：`diff_api.py`、`POST /jobs/api-review`、各仓 `api-review.yml` **尚未实现**；上线后无需改你本地环境变量，只需仓库配置 `API_SYNC_TOKEN` Secret。
+
+---
+
+### 功能 C：代码改完后 — IDE 主动同步文档草稿到飞书
+
+**场景**：你在当前分支改完协议代码，希望把变更写回飞书，但不直接改正文，而是生成**待审核**草稿。
+
+**你怎么做**：
+
+1. 在 **client** 或 **server** 当前分支完成代码修改。
+2. 在 IDE 中说：
+
+   > 根据当前代码变更，生成飞书文档更新草稿
+
+3. Agent 应调用 ECS：`POST /jobs/api-doc-sync`（请求体含 `module`、本仓变更文件或 diff 摘要）；ECS 在飞书对应章节写入 **callout 草稿**，负责人在飞书审阅后合并进正文。
+
+**当前能力**：`/jobs/api-doc-sync` 与对应 Skill 流程 **尚未实现**；上线前请仍在飞书手工改文档。
 
 ---
 
@@ -262,4 +263,4 @@ deploy/setup-cron.sh
 AGENTS.md
 ```
 
-`AGENTS.md` 为各 IDE 共用的简短协作规范；详细对齐流程见各 IDE 规则文件。
+`AGENTS.md` 为各 IDE 共用的简短协作规范；功能 A/B/C 的详细步骤以本节及对应 IDE 规则文件为准。
