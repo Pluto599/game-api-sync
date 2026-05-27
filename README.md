@@ -2,6 +2,8 @@
 
 飞书 Wiki 为权威接口文档。中央服务在 ECS，成员**无需安装 lark-cli**。
 
+仓库：<https://github.com/ranshaobaichi/game-api-sync>
+
 ## 环境变量（PowerShell，复制即用）
 
 ```powershell
