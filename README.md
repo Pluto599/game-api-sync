@@ -136,17 +136,17 @@ foreach ($rel in $items) {
 
 ---
 
-## 二、配置完成后的三种用法（v2 方案）
+## 二、用法
 
-与《飞书权威接口文档 · API 智能体实施计划（v2）》一致，成员侧只有三条主流程：
+共五种入口：
 
 | 功能 | 方向 | 谁触发 | 是否自动开 PR |
 |------|------|--------|----------------|
 | **A** 文档 → 代码 | 飞书改文档后，代码跟上文档 | 开发者在 IDE 主动 | **否** |
 | **B** PR Review | 提 PR 前检查代码与文档是否一致 | 开 PR 时 GitHub Actions | **否**（只评论） |
 | **C** 代码 → 文档 | 改完代码后，把变更写成飞书草稿 | 开发者在 IDE 主动 | **否**（飞书 callout 待审核） |
-
-共同约束：**不**在本机跑 `lark-cli`；**不**新建 `Generated/`；协议文件在**当前分支就地修改**。
+| **D** 刷新缓存 | 从飞书重新拉取并更新 ECS 快照 | 开发者在 IDE 主动 | **否** |
+| **E** 文档/实现对比 | 对比快照与当前分支代码，输出缺陷报告 | 开发者在 IDE 主动 | **否**（只读） |
 
 鉴权请求需带头：`Authorization: Bearer $env:API_SYNC_TOKEN`。PowerShell 示例先设：
 
@@ -197,8 +197,6 @@ Invoke-RestMethod -Headers $h "$env:API_SYNC_BASE/api/snapshot?module=战斗"
 2. 等待 Actions 跑完，查看 PR 里的 **API Review** 评论。
 3. 按评论改代码或先去飞书改文档，再 push；**Bot 不会改你的代码，也不会开 PR**。
 
-**当前能力**：`diff_api.py`、`POST /jobs/api-review`、各仓 `api-review.yml` **尚未实现**；上线后无需改你本地环境变量，只需仓库配置 `API_SYNC_TOKEN` Secret。
-
 ---
 
 ### 功能 C：代码改完后 — IDE 主动同步文档草稿到飞书
@@ -214,7 +212,64 @@ Invoke-RestMethod -Headers $h "$env:API_SYNC_BASE/api/snapshot?module=战斗"
 
 3. Agent 应调用 ECS：`POST /jobs/api-doc-sync`（请求体含 `module`、本仓变更文件或 diff 摘要）；ECS 在飞书对应章节写入 **callout 草稿**，负责人在飞书审阅后合并进正文。
 
-**当前能力**：`/jobs/api-doc-sync` 与对应 Skill 流程 **尚未实现**；上线前请仍在飞书手工改文档。
+**当前能力**：**尚未实现**。
+
+---
+
+### 功能 D：在 IDE 主动请求 ECS 刷新数据缓存
+
+**场景**：飞书文档刚改完，或对齐/对比前需要**最新**快照；由 ECS 执行 `lark-cli` 拉取与解析，本机不装 `lark-cli`。
+
+**你怎么做**：
+
+1. 在 IDE 中说：
+
+   > 请刷新 ECS 上【战斗】模块的接口文档缓存
+
+   （全量刷新可说：请刷新 ECS 全部模块的接口文档缓存）
+
+2. Agent 调用 ECS：
+
+   - 单模块：`POST $env:API_SYNC_BASE/jobs/refresh-cache`，Body：`{ "module": "战斗" }`
+   - 全量：同上，Body：`{}` 或省略 `module`
+
+3. 等待返回 `ok: true` 后，再执行功能 A 或 E。
+
+**PowerShell 示例**（接口上线后）：
+
+```powershell
+Invoke-RestMethod -Method Post -Headers $h `
+  -ContentType "application/json" `
+  -Body '{"module":"战斗"}' `
+  "$env:API_SYNC_BASE/jobs/refresh-cache"
+```
+
+**当前能力**：**尚未实现**；临时由管理员在 ECS 执行 `python3 /opt/api-sync/scripts/refresh_all_snapshots.py`。
+
+---
+
+### 功能 E：在 IDE 主动对比文档与当前实现差异
+
+**场景**：对齐或开 PR 前，先了解飞书文档与**当前分支**代码差在哪里；Agent 生成 **Markdown 对比文档**，并列出实现缺陷（若有）。
+
+**你怎么做**：
+
+1. 打开 client 或 server 仓库，切到当前工作分支。
+2. 可选：先走功能 D 刷新该模块缓存。
+3. 在 IDE 中说：
+
+   > 对比【战斗】模块飞书文档与当前仓库实现的差异，生成对比报告并指出实现缺陷
+
+4. Agent 执行：
+   - `GET .../api/snapshot?module=战斗`；
+   - 按 `config/wiki-registry.yaml` 读取本仓协议源文件；
+   - `POST .../jobs/api-compare`（传 `module`、`repo`、相关文件路径或 diff 摘要），或由 Agent 本地对照生成对比文档；
+   - 输出：**对比报告**（字段/类型/命名差异表）+ **缺陷列表**（如缺少字段、类型错误等）。
+5. **只读**：不修改代码、不开 PR。需要改代码时再走功能 A。
+
+与功能 B 的区别：E 在 IDE 随时主动做；B 在开 PR 时由 CI 自动在 PR 下评论。
+
+**当前能力**：**尚未实现**（依赖 `diff_api.py` 与 `POST /jobs/api-compare`）。
 
 ---
 
