@@ -318,4 +318,4 @@ deploy/setup-cron.sh
 AGENTS.md
 ```
 
-`AGENTS.md` 为各 IDE 共用的简短协作规范；功能 A/B/C 的详细步骤以本节及对应 IDE 规则文件为准。
+`AGENTS.md` 为各 IDE 共用的简短协作规范；功能 A～E 以本节及对应 IDE 规则文件为准。
