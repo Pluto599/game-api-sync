@@ -31,5 +31,6 @@ lark-cli auth login --recommend
 ```powershell
 $env:API_SYNC_BASE = "http://120.27.249.20"
 $env:API_SYNC_TOKEN = "ed7484c01552b1d3c271870a4c128bc7e1c0e5b92c732d33"
-curl -H "Authorization: Bearer $env:API_SYNC_TOKEN" "$env:API_SYNC_BASE/api/snapshot?module=战斗"
+$h = @{ Authorization = "Bearer $env:API_SYNC_TOKEN" }
+Invoke-RestMethod -Headers $h "$env:API_SYNC_BASE/api/snapshot?module=战斗"
 ```
