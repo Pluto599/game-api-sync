@@ -44,18 +44,21 @@ def lark_fetch(obj_token: str) -> dict:
     return json.loads(result.stdout)
 
 
-def main() -> None:
-    reg_path = Path(
-        sys.argv[1] if len(sys.argv) > 1 else "/opt/api-sync/config/wiki-registry.yaml"
-    )
-    cache_dir = Path(
-        sys.argv[2] if len(sys.argv) > 2 else "/opt/api-sync/cache/snapshots"
-    )
+def refresh_snapshots(
+    reg_path: Path,
+    cache_dir: Path,
+    only_module: str | None = None,
+) -> list[str]:
+    """Refresh one or all modules. Returns list of module names written."""
     cache_dir.mkdir(parents=True, exist_ok=True)
-
     reg = load_registry(reg_path)
     modules: dict = reg.get("modules", {})
+    if only_module:
+        if only_module not in modules:
+            raise ValueError(f"unknown module: {only_module}")
+        modules = {only_module: modules[only_module]}
 
+    done: list[str] = []
     for name, info in modules.items():
         api_snap = None
         type_snap = None
@@ -93,6 +96,23 @@ def main() -> None:
             json.dumps(merged, ensure_ascii=False, indent=2), encoding="utf-8"
         )
         print(f"OK {name} -> {out}")
+        done.append(name)
+    return done
+
+
+def main() -> None:
+    reg_path = Path(
+        sys.argv[1] if len(sys.argv) > 1 else "/opt/api-sync/config/wiki-registry.yaml"
+    )
+    cache_dir = Path(
+        sys.argv[2] if len(sys.argv) > 2 else "/opt/api-sync/cache/snapshots"
+    )
+    only = sys.argv[3] if len(sys.argv) > 3 else None
+    try:
+        refresh_snapshots(reg_path, cache_dir, only)
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

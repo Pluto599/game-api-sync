@@ -48,6 +48,17 @@ Invoke-RestMethod -Headers $h $uri | ConvertTo-Json -Depth 20 | Out-File -Encodi
 
 6. **禁止**：本地 `lark-cli`、自动创建 PR、切换分支、写入 `Generated/`。
 
+## 刷新 ECS 文档缓存（飞书刚改完文档时）
+
+在 IDE 中说「请刷新 ECS 上【战斗】模块的接口文档缓存」，或执行：
+
+```powershell
+Invoke-RestMethod -Method Post -Headers $h -ContentType "application/json" `
+  -Body '{"module":"战斗"}' "$env:API_SYNC_BASE/jobs/refresh-cache"
+```
+
+全量刷新：`-Body '{}'`。完成后再拉快照或对齐代码。
+
 ## 拉取 Wiki 节点列表（可选）
 
 ```powershell

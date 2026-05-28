@@ -4,17 +4,27 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
 
 from fastapi import FastAPI, Header, HTTPException, Query
+from pydantic import BaseModel
 
 app = FastAPI(title="game-api-sync")
 
 TOKEN = os.environ.get("API_SYNC_TOKEN", "")
 CACHE = Path(os.environ.get("API_SYNC_CACHE", "/opt/api-sync/cache"))
 SNAPSHOT_DIR = CACHE / "snapshots"
+REGISTRY = Path(os.environ.get("API_SYNC_REGISTRY", "/opt/api-sync/config/wiki-registry.yaml"))
+SCRIPTS_DIR = Path(os.environ.get("API_SYNC_SCRIPTS", "/opt/api-sync/scripts"))
+REFRESH_SCRIPT = SCRIPTS_DIR / "refresh_all_snapshots.py"
+
+
+class RefreshBody(BaseModel):
+    module: str | None = None
 
 
 def check_auth(authorization: str | None) -> None:
@@ -59,3 +69,50 @@ def snapshot(
         )
     data = json.loads(path.read_text(encoding="utf-8"))
     return {"ok": True, "module": name, "snapshot": data}
+
+
+@app.post("/jobs/refresh-cache")
+def refresh_cache(
+    body: RefreshBody | None = None,
+    authorization: str | None = Header(None),
+) -> dict[str, Any]:
+    """Pull Feishu docs on ECS and update snapshot cache (lark-cli runs server-side only)."""
+    check_auth(authorization)
+    if not REFRESH_SCRIPT.is_file():
+        raise HTTPException(status_code=500, detail=f"refresh script not found: {REFRESH_SCRIPT}")
+
+    body = body or RefreshBody()
+    cmd = [
+        sys.executable,
+        str(REFRESH_SCRIPT),
+        str(REGISTRY),
+        str(SNAPSHOT_DIR),
+    ]
+    if body.module:
+        cmd.append(body.module.strip())
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=int(os.environ.get("API_SYNC_REFRESH_TIMEOUT", "600")),
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="refresh-cache timed out") from None
+
+    if proc.returncode != 0:
+        raise HTTPException(
+            status_code=500,
+            detail=(proc.stderr or proc.stdout or "refresh failed").strip(),
+        )
+
+    modules = [line.split()[1] for line in proc.stdout.splitlines() if line.startswith("OK ")]
+    return {
+        "ok": True,
+        "modules": modules,
+        "count": len(modules),
+        "scope": body.module or "all",
+        "log": proc.stdout.strip(),
+    }
