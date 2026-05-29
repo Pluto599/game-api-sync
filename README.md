@@ -99,33 +99,6 @@ Invoke-RestMethod -Headers $h "$env:API_SYNC_BASE/api/snapshot/modules"
 - `AGENTS.md`
 - `config/wiki-registry.yaml`
 
-PowerShell 示例：
-
-```powershell
-$CentralRepo = "<你的路径>/game-api-sync"
-$GameRepo    = "<你的路径>/client"   # 或 server
-
-$items = @(
-  ".cursor/skills/game-api-sync",
-  ".github/copilot-instructions.md",
-  ".junie/guidelines.md",
-  "AGENTS.md",
-  "config/wiki-registry.yaml"
-)
-foreach ($rel in $items) {
-  $from = Join-Path $CentralRepo $rel
-  $to = Join-Path $GameRepo $rel
-  if ($rel -match "skills") {
-    New-Item -ItemType Directory -Force -Path (Split-Path $to) | Out-Null
-    Copy-Item -Recurse -Force $from $to
-  } else {
-    New-Item -ItemType Directory -Force -Path (Split-Path $to) -ErrorAction SilentlyContinue | Out-Null
-    Copy-Item -Force $from $to
-  }
-  Write-Host "OK $rel"
-}
-```
-
 负责人还需在**该游戏仓**的 `config/wiki-registry.yaml` 里，把各模块的 `client_glob` / `server_glob` 改成真实协议文件路径后 commit。
 
 | IDE | 读取的规则文件 |
@@ -138,25 +111,53 @@ foreach ($rel in $items) {
 
 ## 二、用法
 
-共五种入口：
+### 1. 在 IDE 主动请求 ECS 刷新数据缓存
 
-| 功能 | 方向 | 谁触发 | 是否自动开 PR |
-|------|------|--------|----------------|
-| **A** 文档 → 代码 | 飞书改文档后，代码跟上文档 | 开发者在 IDE 主动 | **否** |
-| **B** PR Review | 提 PR 前检查代码与文档是否一致 | 开 PR 时 GitHub Actions | **否**（只评论） |
-| **C** 代码 → 文档 | 改完代码后，把变更写成飞书草稿 | 开发者在 IDE 主动 | **否**（飞书 callout 待审核） |
-| **D** 刷新缓存 | 从飞书重新拉取并更新 ECS 快照 | 开发者在 IDE 主动 | **否** |
-| **E** 文档/实现对比 | 对比快照与当前分支代码，输出缺陷报告 | 开发者在 IDE 主动 | **否**（只读） |
+**场景**：飞书文档刚改完，或对齐/对比前需要**最新**快照；由 ECS 执行 `lark-cli` 拉取与解析，本机不装 `lark-cli`。
 
-鉴权请求需带头：`Authorization: Bearer $env:API_SYNC_TOKEN`。PowerShell 示例先设：
+**你怎么做**：
 
-```powershell
-$h = @{ Authorization = "Bearer $env:API_SYNC_TOKEN" }
-```
+1. 在 IDE 中说：
+
+	> 请刷新 ECS 上【战斗】模块的接口文档缓存
+
+	（全量刷新可说：请刷新 ECS 全部模块的接口文档缓存）
+
+2. Agent 调用 ECS：
+
+	- 单模块：`POST $env:API_SYNC_BASE/jobs/refresh-cache`，Body：`{ "module": "战斗" }`
+	- 全量：同上，Body：`{}` 或省略 `module`
+
+3. 等待返回 `ok: true` 后，再执行其他功能。
 
 ---
 
-### 功能 A：文档改完后 — 在 IDE 主动对齐代码
+### 2. 在 IDE 主动对比文档与当前实现差异
+
+**场景**：对齐或开 PR 前，先了解飞书文档与**当前分支**代码差在哪里；Agent 生成 **Markdown 对比文档**，并列出实现缺陷（若有）。
+
+**你怎么做**：
+
+1. 打开 client 或 server 仓库，切到当前工作分支。
+
+2. 可选：先走功能 D 刷新该模块缓存。
+
+3. 在 IDE 中说：
+
+	> 对比【战斗】模块飞书文档与当前仓库实现的差异，生成对比报告并指出实现缺陷
+
+4. Agent 执行：
+
+	- `GET .../api/snapshot?module=战斗`；
+	- 按 `config/wiki-registry.yaml` 读取本仓协议源文件；
+	- `POST .../jobs/api-compare`（Body：`module`、`repo`、`files` 路径→文件全文）；返回 `report_md` 与 `defects`；
+	- 输出：**对比报告**（字段/类型/命名差异表）+ **缺陷列表**（如缺少字段、类型错误等）。
+
+5. **只读**：不修改代码、不开 PR。需要改代码时再走功能 A。
+
+---
+
+### 3. 在 IDE 主动对齐代码
 
 **场景**：有人在飞书更新了「战斗」等模块的接口说明；ECS 刷新该模块快照（定时或后续由 webhook 触发）；群里 Bot 提醒「请在 IDE 对齐代码」（**不会**自动开 PR）。
 
@@ -183,11 +184,9 @@ Invoke-RestMethod -Headers $h "$env:API_SYNC_BASE/api/snapshot?module=战斗"
 
 模块名须与 `GET .../api/snapshot/modules` 返回一致（配置阶段已验证连通）。
 
-**当前能力**：ECS 快照 API、IDE 规则已可用；飞书群 Bot 变更通知待后续上线（未通知时，你知道文档已改即可直接做第 3 步）。
-
 ---
 
-### 功能 B：提 PR 前 — 自动 API Review
+### 4. 自动 API Review
 
 **场景**：你在 client 或 server 开 Pull Request；CI 把 PR 信息发给 ECS；ECS 对比**飞书最新快照**与 **PR 分支上的协议代码**，在 PR 下留言差异报告（缺字段、类型不一致等）。
 
@@ -199,7 +198,7 @@ Invoke-RestMethod -Headers $h "$env:API_SYNC_BASE/api/snapshot?module=战斗"
 
 ---
 
-### 功能 C：代码改完后 — IDE 主动同步文档草稿到飞书
+### 5. IDE 主动同步文档草稿到飞书
 
 **场景**：你在当前分支改完协议代码，希望把变更写回飞书，但不直接改正文，而是生成**待审核**草稿。
 
@@ -212,65 +211,6 @@ Invoke-RestMethod -Headers $h "$env:API_SYNC_BASE/api/snapshot?module=战斗"
 
 3. Agent 应调用 ECS：`POST /jobs/api-doc-sync`（请求体含 `module`、本仓变更文件或 diff 摘要）；ECS 在飞书对应章节写入 **callout 草稿**，负责人在飞书审阅后合并进正文。
 
-**当前能力**：**尚未实现**。
-
----
-
-### 功能 D：在 IDE 主动请求 ECS 刷新数据缓存
-
-**场景**：飞书文档刚改完，或对齐/对比前需要**最新**快照；由 ECS 执行 `lark-cli` 拉取与解析，本机不装 `lark-cli`。
-
-**你怎么做**：
-
-1. 在 IDE 中说：
-
-   > 请刷新 ECS 上【战斗】模块的接口文档缓存
-
-   （全量刷新可说：请刷新 ECS 全部模块的接口文档缓存）
-
-2. Agent 调用 ECS：
-
-   - 单模块：`POST $env:API_SYNC_BASE/jobs/refresh-cache`，Body：`{ "module": "战斗" }`
-   - 全量：同上，Body：`{}` 或省略 `module`
-
-3. 等待返回 `ok: true` 后，再执行功能 A 或 E。
-
-**PowerShell 示例**（接口上线后）：
-
-```powershell
-Invoke-RestMethod -Method Post -Headers $h `
-  -ContentType "application/json" `
-  -Body '{"module":"战斗"}' `
-  "$env:API_SYNC_BASE/jobs/refresh-cache"
-```
-
-**当前能力**：**尚未实现**；临时由管理员在 ECS 执行 `python3 /opt/api-sync/scripts/refresh_all_snapshots.py`。
-
----
-
-### 功能 E：在 IDE 主动对比文档与当前实现差异
-
-**场景**：对齐或开 PR 前，先了解飞书文档与**当前分支**代码差在哪里；Agent 生成 **Markdown 对比文档**，并列出实现缺陷（若有）。
-
-**你怎么做**：
-
-1. 打开 client 或 server 仓库，切到当前工作分支。
-2. 可选：先走功能 D 刷新该模块缓存。
-3. 在 IDE 中说：
-
-   > 对比【战斗】模块飞书文档与当前仓库实现的差异，生成对比报告并指出实现缺陷
-
-4. Agent 执行：
-   - `GET .../api/snapshot?module=战斗`；
-   - 按 `config/wiki-registry.yaml` 读取本仓协议源文件；
-   - `POST .../jobs/api-compare`（传 `module`、`repo`、相关文件路径或 diff 摘要），或由 Agent 本地对照生成对比文档；
-   - 输出：**对比报告**（字段/类型/命名差异表）+ **缺陷列表**（如缺少字段、类型错误等）。
-5. **只读**：不修改代码、不开 PR。需要改代码时再走功能 A。
-
-与功能 B 的区别：E 在 IDE 随时主动做；B 在开 PR 时由 CI 自动在 PR 下评论。
-
-**当前能力**：**尚未实现**（依赖 `diff_api.py` 与 `POST /jobs/api-compare`）。
-
 ---
 
 ## 三、权威飞书文档
@@ -280,15 +220,16 @@ Invoke-RestMethod -Method Post -Headers $h `
 
 ## 四、常见问题
 
-**`curl -H` 报错** → 在 PowerShell 改用 `Invoke-RestMethod -Headers $h`。
+1. **`curl -H` 报错** → 在 PowerShell 改用 `Invoke-RestMethod -Headers $h`。
 
-**模块名乱码** → 控制台编码问题；用 `$env:TEMP\*.json` 查看。
+2. **模块名乱码** → 控制台编码问题；用 `$env:TEMP\*.json` 查看。
 
-**404 snapshot** → 联系管理员在 ECS 执行 `python3 /opt/api-sync/scripts/refresh_all_snapshots.py`。
+3. **404 snapshot** → 联系管理员在 ECS 执行 `python3 /opt/api-sync/scripts/refresh_all_snapshots.py`。
 
----
+4. ---
 
-## 五、管理员：ECS 部署
+5. ## 五、管理员：ECS 部署
+
 
 公网：`120.27.249.20`  
 仓库：`https://github.com/Pluto599/game-api-sync`

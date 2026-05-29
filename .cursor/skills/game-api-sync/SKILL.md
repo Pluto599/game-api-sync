@@ -48,6 +48,23 @@ Invoke-RestMethod -Headers $h $uri | ConvertTo-Json -Depth 20 | Out-File -Encodi
 
 6. **禁止**：本地 `lark-cli`、自动创建 PR、切换分支、写入 `Generated/`。
 
+## 对比文档与实现（只读）
+
+用户要求对比差异时：
+
+1. 按 `config/wiki-registry.yaml` 读取本仓协议源文件内容；
+2. `POST $env:API_SYNC_BASE/jobs/api-compare`，Body 示例：
+
+```json
+{
+  "module": "战斗",
+  "repo": "client",
+  "files": { "Assets/Scripts/Battle/Foo.cs": "<文件全文>" }
+}
+```
+
+3. 将返回的 `report_md` 展示给用户，并说明 `defects` 列表；**不改代码**。
+
 ## 刷新 ECS 文档缓存（飞书刚改完文档时）
 
 在 IDE 中说「请刷新 ECS 上【战斗】模块的接口文档缓存」，或执行：

@@ -22,9 +22,18 @@ REGISTRY = Path(os.environ.get("API_SYNC_REGISTRY", "/opt/api-sync/config/wiki-r
 SCRIPTS_DIR = Path(os.environ.get("API_SYNC_SCRIPTS", "/opt/api-sync/scripts"))
 REFRESH_SCRIPT = SCRIPTS_DIR / "refresh_all_snapshots.py"
 
+sys.path.insert(0, str(SCRIPTS_DIR))
+from diff_api import compare_snapshot_to_code  # noqa: E402
+
 
 class RefreshBody(BaseModel):
     module: str | None = None
+
+
+class CompareBody(BaseModel):
+    module: str
+    repo: str = "client"
+    files: dict[str, str]
 
 
 def check_auth(authorization: str | None) -> None:
@@ -116,3 +125,29 @@ def refresh_cache(
         "scope": body.module or "all",
         "log": proc.stdout.strip(),
     }
+
+
+@app.post("/jobs/api-compare")
+def api_compare(
+    body: CompareBody,
+    authorization: str | None = Header(None),
+) -> dict[str, Any]:
+    """Compare cached Feishu snapshot vs posted source files; return Markdown report."""
+    check_auth(authorization)
+    name = body.module.strip()
+    path = SNAPSHOT_DIR / f"{name}.json"
+    if not path.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail=f"snapshot not found for module '{name}'; run refresh-cache first",
+        )
+    if not body.files:
+        raise HTTPException(status_code=400, detail="files must not be empty")
+
+    snapshot = json.loads(path.read_text(encoding="utf-8"))
+    return compare_snapshot_to_code(
+        snapshot,
+        body.files,
+        module=name,
+        repo=body.repo,
+    )
