@@ -24,6 +24,7 @@ REFRESH_SCRIPT = SCRIPTS_DIR / "refresh_all_snapshots.py"
 
 sys.path.insert(0, str(SCRIPTS_DIR))
 from diff_api import compare_snapshot_to_code  # noqa: E402
+from doc_sync import sync_doc_draft  # noqa: E402
 
 
 class RefreshBody(BaseModel):
@@ -34,6 +35,14 @@ class CompareBody(BaseModel):
     module: str
     repo: str = "client"
     files: dict[str, str]
+
+
+class DocSyncBody(BaseModel):
+    module: str
+    repo: str = "client"
+    summary: str
+    files_changed: list[str] = []
+    target: str = "api_docs"
 
 
 def check_auth(authorization: str | None) -> None:
@@ -151,3 +160,27 @@ def api_compare(
         module=name,
         repo=body.repo,
     )
+
+
+@app.post("/jobs/api-doc-sync")
+def api_doc_sync(
+    body: DocSyncBody,
+    authorization: str | None = Header(None),
+) -> dict[str, Any]:
+    """Append pending-review callout draft to Feishu module doc (ECS runs lark-cli)."""
+    check_auth(authorization)
+    if not body.summary.strip():
+        raise HTTPException(status_code=400, detail="summary must not be empty")
+    try:
+        return sync_doc_draft(
+            REGISTRY,
+            module=body.module.strip(),
+            repo=body.repo,
+            summary=body.summary,
+            files_changed=body.files_changed,
+            target=body.target,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e

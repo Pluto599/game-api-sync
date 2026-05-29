@@ -209,7 +209,18 @@ Invoke-RestMethod -Headers $h "$env:API_SYNC_BASE/api/snapshot?module=战斗"
 
    > 根据当前代码变更，生成飞书文档更新草稿
 
-3. Agent 应调用 ECS：`POST /jobs/api-doc-sync`（请求体含 `module`、本仓变更文件或 diff 摘要）；ECS 在飞书对应章节写入 **callout 草稿**，负责人在飞书审阅后合并进正文。
+3. Agent 调用 ECS：`POST /jobs/api-doc-sync`，Body 示例：
+
+```json
+{
+  "module": "战斗",
+  "repo": "client",
+  "summary": "变更说明（必填）",
+  "files_changed": ["Assets/Scripts/Battle/Foo.cs"]
+}
+```
+
+ECS 在飞书文档末尾追加**黄色待审核 callout**；负责人在飞书审阅后合并进正文。
 
 ---
 

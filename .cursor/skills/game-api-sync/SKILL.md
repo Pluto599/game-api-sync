@@ -76,6 +76,24 @@ Invoke-RestMethod -Method Post -Headers $h -ContentType "application/json" `
 
 全量刷新：`-Body '{}'`。完成后再拉快照或对齐代码。
 
+## 同步文档草稿到飞书（代码 → 文档）
+
+用户说「根据当前代码变更，生成飞书文档更新草稿」时：
+
+1. 汇总本仓变更文件与 diff 摘要；
+2. `POST $env:API_SYNC_BASE/jobs/api-doc-sync`，Body 示例：
+
+```json
+{
+  "module": "战斗",
+  "repo": "client",
+  "summary": "BattleState 新增字段 foo；枚举 Bar 取值 +1",
+  "files_changed": ["Assets/Scripts/Battle/Foo.cs"]
+}
+```
+
+3. ECS 在对应飞书文档末尾追加**黄色待审核 callout**；负责人在飞书审阅后合并正文。
+
 ## 拉取 Wiki 节点列表（可选）
 
 ```powershell
