@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
 
-from fastapi import FastAPI, Header, HTTPException, Query
+from fastapi import FastAPI, Header, HTTPException, Query, Request
 from pydantic import BaseModel
 
 app = FastAPI(title="game-api-sync")
@@ -25,6 +25,9 @@ REFRESH_SCRIPT = SCRIPTS_DIR / "refresh_all_snapshots.py"
 sys.path.insert(0, str(SCRIPTS_DIR))
 from diff_api import compare_snapshot_to_code  # noqa: E402
 from doc_sync import sync_doc_draft  # noqa: E402
+from feishu_notify import notify_doc_updated  # noqa: E402
+from registry_globs import load_registry, obj_token_to_modules  # noqa: E402
+from refresh_all_snapshots import refresh_snapshots  # noqa: E402
 
 
 class RefreshBody(BaseModel):
@@ -43,6 +46,30 @@ class DocSyncBody(BaseModel):
     summary: str
     files_changed: list[str] = []
     target: str = "api_docs"
+
+
+class ApiReviewBody(CompareBody):
+    pr_number: int | None = None
+
+
+def _compare_from_cache(body: CompareBody, *, report_title: str | None = None) -> dict[str, Any]:
+    name = body.module.strip()
+    path = SNAPSHOT_DIR / f"{name}.json"
+    if not path.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail=f"snapshot not found for module '{name}'; run refresh-cache first",
+        )
+    if not body.files:
+        raise HTTPException(status_code=400, detail="files must not be empty")
+    snapshot = json.loads(path.read_text(encoding="utf-8"))
+    return compare_snapshot_to_code(
+        snapshot,
+        body.files,
+        module=name,
+        repo=body.repo,
+        report_title=report_title,
+    )
 
 
 def check_auth(authorization: str | None) -> None:
@@ -143,23 +170,87 @@ def api_compare(
 ) -> dict[str, Any]:
     """Compare cached Feishu snapshot vs posted source files; return Markdown report."""
     check_auth(authorization)
-    name = body.module.strip()
-    path = SNAPSHOT_DIR / f"{name}.json"
-    if not path.is_file():
-        raise HTTPException(
-            status_code=404,
-            detail=f"snapshot not found for module '{name}'; run refresh-cache first",
-        )
-    if not body.files:
-        raise HTTPException(status_code=400, detail="files must not be empty")
+    return _compare_from_cache(body)
 
-    snapshot = json.loads(path.read_text(encoding="utf-8"))
-    return compare_snapshot_to_code(
-        snapshot,
-        body.files,
-        module=name,
-        repo=body.repo,
+
+@app.post("/jobs/api-review")
+def api_review(
+    body: ApiReviewBody,
+    authorization: str | None = Header(None),
+) -> dict[str, Any]:
+    """PR Review: same as api-compare, titled for Pull Request comments."""
+    check_auth(authorization)
+    title = f"# API Review（PR）：{body.module.strip()}"
+    if body.pr_number is not None:
+        title += f" · PR #{body.pr_number}"
+    result = _compare_from_cache(body, report_title=title)
+    result["kind"] = "pr_review"
+    if body.pr_number is not None:
+        result["pr_number"] = body.pr_number
+    return result
+
+
+@app.get("/api/status")
+def api_status(authorization: str | None = Header(None)) -> dict[str, Any]:
+    """Latest cached snapshot metadata per module (for Bot status / debugging)."""
+    check_auth(authorization)
+    SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
+    items: list[dict[str, Any]] = []
+    for path in sorted(SNAPSHOT_DIR.glob("*.json")):
+        data = json.loads(path.read_text(encoding="utf-8"))
+        rev = None
+        for part in ("api_docs", "type_constraints"):
+            block = data.get(part) or {}
+            if block.get("revision_id") is not None:
+                rev = block.get("revision_id")
+        items.append(
+            {
+                "module": path.stem,
+                "cached_at": path.stat().st_mtime,
+                "revision_id": rev,
+            }
+        )
+    return {"ok": True, "modules": items, "count": len(items)}
+
+
+@app.post("/webhook/feishu")
+async def feishu_webhook(request: Request) -> dict[str, Any]:
+    """Feishu event URL verification + doc update → refresh snapshot (+ optional group notify)."""
+    body = await request.json()
+    if body.get("type") == "url_verification" or "challenge" in body:
+        return {"challenge": body.get("challenge")}
+
+    event = body.get("event") or {}
+    header = body.get("header") or {}
+    file_token = (
+        event.get("file_token")
+        or event.get("file_id")
+        or event.get("obj_token")
+        or event.get("document_id")
     )
+
+    reg = load_registry(REGISTRY)
+    modules: list[str] = []
+    if file_token:
+        modules = obj_token_to_modules(reg).get(str(file_token), [])
+
+    if not modules:
+        refresh_snapshots(REGISTRY, SNAPSHOT_DIR, None)
+        modules_note = "all"
+    else:
+        for m in modules:
+            refresh_snapshots(REGISTRY, SNAPSHOT_DIR, m)
+        modules_note = ",".join(modules)
+
+    for m in (modules if modules else []):
+        notify_doc_updated(m)
+
+    return {
+        "ok": True,
+        "event_type": header.get("event_type"),
+        "refreshed": modules_note,
+        "notified": modules,
+    }
 
 
 @app.post("/jobs/api-doc-sync")

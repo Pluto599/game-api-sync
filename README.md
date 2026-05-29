@@ -255,6 +255,11 @@ python3 /opt/api-sync/scripts/refresh_all_snapshots.py
 bash /tmp/game-api-sync/deploy/setup-cron.sh
 ```
 
+**一次性配置（代码已就绪，部署后做）：**
+
+- **飞书 webhook**：开放平台 → 事件订阅 → `http://120.27.249.20/webhook/feishu`；可选环境变量 `FEISHU_NOTIFY_CHAT_ID`（群 chat_id）用于文档更新通知。
+- **PR Review**：将 `deploy/api-review.yml` 复制到 client/server 的 `.github/workflows/`，仓库 Secret 添加 `API_SYNC_TOKEN`。
+
 ## 六、本仓库结构
 
 ```text

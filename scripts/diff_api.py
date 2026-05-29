@@ -57,6 +57,7 @@ def compare_snapshot_to_code(
     *,
     module: str,
     repo: str,
+    report_title: str | None = None,
 ) -> dict[str, Any]:
     code = extract_from_sources(files)
     code_names = set(code["fields"])
@@ -80,7 +81,7 @@ def compare_snapshot_to_code(
         defects.append(f"代码有而文档未描述枚举 {len(enum_code_only)} 个")
 
     lines = [
-        f"# API 对比报告：{module}",
+        report_title or f"# API 对比报告：{module}",
         "",
         f"- 仓库侧：`{repo}`",
         f"- 比对文件数：{len(files)}",
