@@ -1,106 +1,56 @@
 ---
 name: game-api-sync
 description: >-
-  根据飞书权威接口文档（ECS 快照）对齐当前仓库协议代码，或拉取 Wiki 元数据。
-  在 client/server 仓库中说「对齐 XX 模块代码到文档」时使用。禁止本地 lark-cli、禁止 Generated 目录、禁止自动开 PR。
-disable-model-invocation: false
+  飞书权威接口文档与 ECS 快照：刷新缓存、对比文档与代码差异、对齐协议代码、写回飞书 callout 草稿。
+  在 client/server 仓库处理协议对齐、api-sync、wiki-registry 或用户提到飞书接口文档时使用。
 ---
 
-# game-api-sync — 协议文档对齐
+# game-api-sync
 
-飞书 Wiki 为唯一权威源。文档快照由 ECS 中央服务提供，成员**不安装 lark-cli**。
+飞书 Wiki 为唯一权威源。文档快照由 ECS 提供；成员**不安装 lark-cli**。
+
+## 使用时机
+
+- 用户要对齐某模块代码到飞书文档
+- 用户要对比文档与当前实现（只读报告）
+- 飞书刚改完文档，需要刷新 ECS 快照后再对齐
+- 用户要把代码变更写成飞书待审核草稿
+- 需要列出 ECS 已有快照模块或拉取某模块 snapshot
 
 ## 前置条件
 
-1. 已配置环境变量（PowerShell）：
+1. 环境变量 `API_SYNC_BASE`、`API_SYNC_TOKEN` 已配置（见 `references/ecs-api.md`）
+2. 当前 Git 分支是开发者**有意工作的分支**（不切换分支、不开 PR）
 
-```powershell
-$env:API_SYNC_BASE = "http://120.27.249.20"
-$env:API_SYNC_TOKEN = "ed7484c01552b1d3c271870a4c128bc7e1c0e5b92c732d33"
-```
+## 指令
 
-2. 当前 Git 分支是开发者**有意工作的分支**（不要切换分支、不要开 PR）。
+### 对齐代码到文档
 
-## 对齐代码到文档（主流程）
+1. 确认模块名；必要时 `GET /api/snapshot/modules`
+2. `GET /api/snapshot?module=<模块名>` 取快照
+3. 读 `config/wiki-registry.yaml` 中本仓 `client_glob` 或 `server_glob`
+4. 只改**已有**协议源文件；**禁止** `Generated/`
+5. 列出变更摘要；由用户自行 commit
 
-当用户说「根据最新飞书接口文档，对齐本仓库【模块名】模块的协议代码」时：
+### 对比文档与实现（只读）
 
-1. **确认模块名**（如 `战斗`、`地图`）。可用：
+1. 读取 registry 对应源文件
+2. `POST /jobs/api-compare`（Body：`module`、`repo`、`files` 路径→全文）
+3. 展示 `report_md` 与 `defects`；**不改代码**
 
-```powershell
-$h = @{ Authorization = "Bearer $env:API_SYNC_TOKEN" }
-Invoke-RestMethod -Headers $h "$env:API_SYNC_BASE/api/snapshot/modules"
-```
+### 刷新 ECS 缓存
 
-2. **拉取快照**（保存到临时文件便于阅读）：
+`POST /jobs/refresh-cache`，Body：`{"module":"<模块名>"}` 或 `{}` 全量
 
-```powershell
-$module = "战斗"   # 替换为实际模块
-$uri = "$env:API_SYNC_BASE/api/snapshot?module=$([uri]::EscapeDataString($module))"
-Invoke-RestMethod -Headers $h $uri | ConvertTo-Json -Depth 20 | Out-File -Encoding utf8 "$env:TEMP\api-snapshot-$module.json"
-```
+### 同步文档草稿到飞书
 
-3. **读路径映射**：打开本仓库根目录 `config/wiki-registry.yaml` 中对应模块的 `client_glob` 或 `server_glob`（若缺失，从中央仓 [game-api-sync](https://github.com/Pluto599/game-api-sync) 复制该文件到 `config/`）。
+`POST /jobs/api-doc-sync`，Body：`module`、`repo`、`summary`（必填）、`files_changed`
 
-4. **定位现有源文件**：用 glob 搜索**已有**协议文件，**禁止**新建 `Generated/` 或平行目录。
+### 禁止
 
-5. **对照快照就地修改**：按 snapshot 中 `messages`、类型约束 struct/enum 修改字段、序列化、注释；列出将改文件清单，改完后由开发者自行 `git commit`。
+- 本机 `lark-cli`、自动 PR、切换分支、写入 `Generated/`
 
-6. **禁止**：本地 `lark-cli`、自动创建 PR、切换分支、写入 `Generated/`。
+## 参考资料
 
-## 对比文档与实现（只读）
-
-用户要求对比差异时：
-
-1. 按 `config/wiki-registry.yaml` 读取本仓协议源文件内容；
-2. `POST $env:API_SYNC_BASE/jobs/api-compare`，Body 示例：
-
-```json
-{
-  "module": "战斗",
-  "repo": "client",
-  "files": { "Assets/Scripts/Battle/Foo.cs": "<文件全文>" }
-}
-```
-
-3. 将返回的 `report_md` 展示给用户，并说明 `defects` 列表；**不改代码**。
-
-## 刷新 ECS 文档缓存（飞书刚改完文档时）
-
-在 IDE 中说「请刷新 ECS 上【战斗】模块的接口文档缓存」，或执行：
-
-```powershell
-Invoke-RestMethod -Method Post -Headers $h -ContentType "application/json" `
-  -Body '{"module":"战斗"}' "$env:API_SYNC_BASE/jobs/refresh-cache"
-```
-
-全量刷新：`-Body '{}'`。完成后再拉快照或对齐代码。
-
-## 同步文档草稿到飞书（代码 → 文档）
-
-用户说「根据当前代码变更，生成飞书文档更新草稿」时：
-
-1. 汇总本仓变更文件与 diff 摘要；
-2. `POST $env:API_SYNC_BASE/jobs/api-doc-sync`，Body 示例：
-
-```json
-{
-  "module": "战斗",
-  "repo": "client",
-  "summary": "BattleState 新增字段 foo；枚举 Bar 取值 +1",
-  "files_changed": ["Assets/Scripts/Battle/Foo.cs"]
-}
-```
-
-3. ECS 在对应飞书文档末尾追加**黄色待审核 callout**；负责人在飞书审阅后合并正文。
-
-## 拉取 Wiki 节点列表（可选）
-
-```powershell
-Invoke-RestMethod -Headers @{ Authorization = "Bearer $env:API_SYNC_TOKEN" } "$env:API_SYNC_BASE/api/wiki-nodes"
-```
-
-## 权威文档链接
-
-- 接口文档：https://my.feishu.cn/wiki/NYw0wSFwji6j3skwW4ocIrkxn6b
-- 类型约束：https://my.feishu.cn/wiki/CF6owdEKLiYhwmkBrMxcgxK8nde
+- `references/ecs-api.md` — ECS API 与 PowerShell
+- `references/workflows.md` — 五种入口与 JSON Body

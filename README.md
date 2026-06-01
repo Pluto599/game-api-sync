@@ -2,7 +2,7 @@
 
 飞书 Wiki 为权威接口文档。中央服务在 ECS，无需安装 lark-cli。
 
-仓库：<https://github.com/Pluto599/game-api-sync>
+仓库：[https://github.com/Pluto599/game-api-sync](https://github.com/Pluto599/game-api-sync)
 
 ---
 
@@ -27,7 +27,7 @@ $env:API_SYNC_TOKEN = "ed7484c01552b1d3c271870a4c128bc7e1c0e5b92c732d33"
 echo $PROFILE
 ```
 
-2. 若文件不存在则创建，并追加两行（把路径换成上一步输出的路径）：
+1. 若文件不存在则创建，并追加两行（把路径换成上一步输出的路径）：
 
 ```powershell
 if (!(Test-Path $PROFILE)) { New-Item -Path $PROFILE -ItemType File -Force }
@@ -58,7 +58,7 @@ $env:API_SYNC_TOKEN = "ed7484c01552b1d3c271870a4c128bc7e1c0e5b92c732d33"
 }
 ```
 
-4. 关闭并重新打开集成终端。
+1. 关闭并重新打开集成终端。
 
 **JetBrains Rider**
 
@@ -66,12 +66,14 @@ $env:API_SYNC_TOKEN = "ed7484c01552b1d3c271870a4c128bc7e1c0e5b92c732d33"
 2. `Help` → `Edit Custom Properties` 不适用；更简单做法是在 Rider 内置 Terminal 启动前于 Profile 写入，或使用 `.env` 插件。
 3. 推荐：在 Rider **Settings** → **Tools** → **Terminal** → **Environment variables** 中添加：
 
-| 名称 | 值 |
-|------|-----|
-| `API_SYNC_BASE` | `http://120.27.249.20` |
+
+| 名称               | 值                                                  |
+| ---------------- | -------------------------------------------------- |
+| `API_SYNC_BASE`  | `http://120.27.249.20`                             |
 | `API_SYNC_TOKEN` | `ed7484c01552b1d3c271870a4c128bc7e1c0e5b92c732d33` |
 
-4. 新开 Terminal 标签页后生效。
+
+1. 新开 Terminal 标签页后生效。
 
 ---
 
@@ -93,19 +95,20 @@ Invoke-RestMethod -Headers $h "$env:API_SYNC_BASE/api/snapshot/modules"
 
 **不要**把整个 `game-api-sync` 克隆进游戏仓。从中央仓复制下列路径到 **client 或 server 仓库根目录**（与 `Assets/`、`src/` 同级），保持相对路径不变：
 
-- `.cursor/skills/game-api-sync/`
+- `.cursor/rules/`（项目规则，`.mdc`）
+- `.cursor/skills/game-api-sync/`（含 `references/`）
 - `.github/copilot-instructions.md`
 - `.junie/guidelines.md`
-- `AGENTS.md`
 - `config/wiki-registry.yaml`
 
 负责人还需在**该游戏仓**的 `config/wiki-registry.yaml` 里，把各模块的 `client_glob` / `server_glob` 改成真实协议文件路径后 commit。
 
 | IDE | 读取的规则文件 |
 |-----|----------------|
-| Cursor | `.cursor/skills/game-api-sync/SKILL.md` |
+| Cursor | `.cursor/rules/*.mdc` + `.cursor/skills/game-api-sync/SKILL.md` |
 | VS Code（Copilot） | `.github/copilot-instructions.md` |
-| Rider（Junie / AI） | `.junie/guidelines.md` 与根目录 `AGENTS.md` |
+| Rider（Junie / AI） | `.junie/guidelines.md`（并复制 `.cursor/rules/` 若使用 Cursor 规则） |
+
 
 ---
 
@@ -118,16 +121,11 @@ Invoke-RestMethod -Headers $h "$env:API_SYNC_BASE/api/snapshot/modules"
 **你怎么做**：
 
 1. 在 IDE 中说：
-
-	> 请刷新 ECS 上【战斗】模块的接口文档缓存
-
-	（全量刷新可说：请刷新 ECS 全部模块的接口文档缓存）
-
+  请刷新 ECS 上【战斗】模块的接口文档缓存
+  全量刷新可说：请刷新 ECS 全部模块的接口文档缓存）
 2. Agent 调用 ECS：
-
-	- 单模块：`POST $env:API_SYNC_BASE/jobs/refresh-cache`，Body：`{ "module": "战斗" }`
-	- 全量：同上，Body：`{}` 或省略 `module`
-
+  单模块：`POST $env:API_SYNC_BASE/jobs/refresh-cache`，Body：`{ "module": "战斗" }`
+   全量：同上，Body：`{}` 或省略 `module`
 3. 等待返回 `ok: true` 后，再执行其他功能。
 
 ---
@@ -139,41 +137,33 @@ Invoke-RestMethod -Headers $h "$env:API_SYNC_BASE/api/snapshot/modules"
 **你怎么做**：
 
 1. 打开 client 或 server 仓库，切到当前工作分支。
-
 2. 可选：先走功能 D 刷新该模块缓存。
-
 3. 在 IDE 中说：
-
-	> 对比【战斗】模块飞书文档与当前仓库实现的差异，生成对比报告并指出实现缺陷
-
+  对比【战斗】模块飞书文档与当前仓库实现的差异，生成对比报告并指出实现缺陷
 4. Agent 执行：
-
-	- `GET .../api/snapshot?module=战斗`；
-	- 按 `config/wiki-registry.yaml` 读取本仓协议源文件；
-	- `POST .../jobs/api-compare`（Body：`module`、`repo`、`files` 路径→文件全文）；返回 `report_md` 与 `defects`；
-	- 输出：**对比报告**（字段/类型/命名差异表）+ **缺陷列表**（如缺少字段、类型错误等）。
-
+  `GET .../api/snapshot?module=战斗`；
+   按 `config/wiki-registry.yaml` 读取本仓协议源文件；
+   `POST .../jobs/api-compare`（Body：`module`、`repo`、`files` 路径→文件全文）；返回 `report_md` 与 `defects`；
+   输出：**对比报告**（字段/类型/命名差异表）+ **缺陷列表**（如缺少字段、类型错误等）。
 5. **只读**：不修改代码、不开 PR。需要改代码时再走功能 A。
 
 ---
 
 ### 3. 在 IDE 主动对齐代码
 
-**场景**：有人在飞书更新了「战斗」等模块的接口说明；ECS 刷新该模块快照（定时或后续由 webhook 触发）；群里 Bot 提醒「请在 IDE 对齐代码」（**不会**自动开 PR）。
+**场景**：有人在飞书更新了「战斗」等模块的接口说明；ECS 刷新该模块快照（定时或后续由 webhook 触发）。
 
 **你怎么做**（client / server **各自仓库、各自分支**，互不影响）：
 
 1. `git checkout` 到你要提交的功能分支（例如 `feature/battle-v2`）。
 2. 打开 **client** 或 **server** 仓库（一次只对一个仓）。
 3. 在 Cursor / Copilot / Rider 中说：
-
-   > 根据最新飞书接口文档，对齐本仓库战斗模块代码
-
-4. Agent 按 Skill / `AGENTS.md` 执行：
-   - `GET $env:API_SYNC_BASE/api/snapshot?module=战斗` 取文档解析结果（AST/字段列表）；
-   - 读本仓 `config/wiki-registry.yaml` 的 `client_glob` 或 `server_glob`，定位**已有** `.cs` / `.h` 等文件；
-   - 就地改 struct / enum / 序列化逻辑，**不**创建 `Generated/`；
-   - 输出变更摘要；由你自行 `git commit`（是否开 PR 由你决定）。
+  > 根据最新飞书接口文档，对齐本仓库战斗模块代码
+4. Agent 按 Skill / `.cursor/rules/` 执行：
+  - `GET $env:API_SYNC_BASE/api/snapshot?module=战斗` 取文档解析结果（AST/字段列表）；
+  - 读本仓 `config/wiki-registry.yaml` 的 `client_glob` 或 `server_glob`，定位**已有** `.cs` / `.h` 等文件；
+  - 就地改 struct / enum / 序列化逻辑，**不**创建 `Generated/`；
+  - 输出变更摘要；由你自行 `git commit`（是否开 PR 由你决定）。
 5. 另一端的同事在 **server**（或 client）仓库、**自己的分支**上重复同样流程。
 
 **可选：手动拉快照核对**（PowerShell）：
@@ -206,9 +196,7 @@ Invoke-RestMethod -Headers $h "$env:API_SYNC_BASE/api/snapshot?module=战斗"
 
 1. 在 **client** 或 **server** 当前分支完成代码修改。
 2. 在 IDE 中说：
-
-   > 根据当前代码变更，生成飞书文档更新草稿
-
+  > 根据当前代码变更，生成飞书文档更新草稿
 3. Agent 调用 ECS：`POST /jobs/api-doc-sync`，Body 示例：
 
 ```json
@@ -231,16 +219,11 @@ ECS 在飞书文档末尾追加**黄色待审核 callout**；负责人在飞书�
 
 ## 四、常见问题
 
-1. **`curl -H` 报错** → 在 PowerShell 改用 `Invoke-RestMethod -Headers $h`。
-
+1. `**curl -H` 报错** → 在 PowerShell 改用 `Invoke-RestMethod -Headers $h`。
 2. **模块名乱码** → 控制台编码问题；用 `$env:TEMP\*.json` 查看。
-
 3. **404 snapshot** → 联系管理员在 ECS 执行 `python3 /opt/api-sync/scripts/refresh_all_snapshots.py`。
-
 4. ---
-
 5. ## 五、管理员：ECS 部署
-
 
 公网：`120.27.249.20`  
 仓库：`https://github.com/Pluto599/game-api-sync`
@@ -264,15 +247,14 @@ bash /tmp/game-api-sync/deploy/setup-cron.sh
 
 ```text
 config/wiki-registry.yaml
-scripts/parse_docx_xml.py
-scripts/refresh_all_snapshots.py
-api-server/main.py
-deploy/install-to-ecs.sh
-deploy/setup-cron.sh
+.cursor/rules/api-protocol-baseline.mdc
 .cursor/skills/game-api-sync/SKILL.md
+.cursor/skills/game-api-sync/references/
 .github/copilot-instructions.md
 .junie/guidelines.md
-AGENTS.md
+scripts/...
+api-server/...
+deploy/...
 ```
 
-`AGENTS.md` 为各 IDE 共用的简短协作规范；功能 A～E 以本节及对应 IDE 规则文件为准。
+Cursor **项目规则**在 `.cursor/rules/*.mdc`（原根目录 `AGENTS.md` 已合并至 `api-protocol-baseline.mdc`）；**Skill** 在 `.cursor/skills/game-api-sync/`。
