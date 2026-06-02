@@ -49,7 +49,7 @@ $env:API_SYNC_TOKEN = "ed7484c01552b1d3c271870a4c128bc7e1c0e5b92c732d33"
 
 1. 打开游戏仓库或本仓根目录。
 2. `Ctrl+Shift+P` → 输入 `Preferences: Open Workspace Settings (JSON)`（或用户设置 JSON）。
-3. 在 `settings.json` 增加（可复制 `.vscode/settings.example.json`）：
+3. 在 `settings.json` 增加（可复制 `deploy/vscode-settings.example.json` 内容）：
 
 ```json
 "terminal.integrated.env.windows": {

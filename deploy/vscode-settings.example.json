@@ -1,0 +1,6 @@
+{
+  "terminal.integrated.env.windows": {
+    "API_SYNC_BASE": "http://120.27.249.20",
+    "API_SYNC_TOKEN": "在此填入团队 Token"
+  }
+}
