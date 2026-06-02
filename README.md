@@ -49,7 +49,7 @@ $env:API_SYNC_TOKEN = "ed7484c01552b1d3c271870a4c128bc7e1c0e5b92c732d33"
 
 1. 打开游戏仓库或本仓根目录。
 2. `Ctrl+Shift+P` → 输入 `Preferences: Open Workspace Settings (JSON)`（或用户设置 JSON）。
-3. 在 `settings.json` 增加（路径按你机器修改）：
+3. 在 `settings.json` 增加（可复制 `.vscode/settings.example.json`）：
 
 ```json
 "terminal.integrated.env.windows": {
@@ -95,19 +95,19 @@ Invoke-RestMethod -Headers $h "$env:API_SYNC_BASE/api/snapshot/modules"
 
 **不要**把整个 `game-api-sync` 克隆进游戏仓。从中央仓复制下列路径到 **client 或 server 仓库根目录**（与 `Assets/`、`src/` 同级），保持相对路径不变：
 
-- `.cursor/rules/`（项目规则，`.mdc`）
+- `.cursor/rules/`（项目规则 `.mdc`）
 - `.cursor/skills/game-api-sync/`（含 `references/`）
-- `.github/copilot-instructions.md`
-- `.junie/guidelines.md`
+- `.github/copilot-instructions.md` 与 `.github/game-api-sync/`（VS Code Copilot）
+- `.junie/guidelines.md` 与 `.junie/game-api-sync/`（Rider / Junie）
 - `config/wiki-registry.yaml`
 
 负责人还需在**该游戏仓**的 `config/wiki-registry.yaml` 里，把各模块的 `client_glob` / `server_glob` 改成真实协议文件路径后 commit。
 
-| IDE | 读取的规则文件 |
-|-----|----------------|
+| IDE | 规则 / 技能入口 |
+|-----|------------------|
 | Cursor | `.cursor/rules/*.mdc` + `.cursor/skills/game-api-sync/SKILL.md` |
-| VS Code（Copilot） | `.github/copilot-instructions.md` |
-| Rider（Junie / AI） | `.junie/guidelines.md`（并复制 `.cursor/rules/` 若使用 Cursor 规则） |
+| VS Code（Copilot） | `.github/copilot-instructions.md` + `.github/game-api-sync/*.md` |
+| Rider（Junie / AI） | `.junie/guidelines.md` + `.junie/game-api-sync/*.md` |
 
 
 ---
@@ -246,15 +246,14 @@ bash /tmp/game-api-sync/deploy/setup-cron.sh
 ## 六、本仓库结构
 
 ```text
-config/wiki-registry.yaml
 .cursor/rules/api-protocol-baseline.mdc
 .cursor/skills/game-api-sync/SKILL.md
 .cursor/skills/game-api-sync/references/
 .github/copilot-instructions.md
+.github/game-api-sync/
 .junie/guidelines.md
-scripts/...
-api-server/...
-deploy/...
+.junie/game-api-sync/
+config/wiki-registry.yaml
 ```
 
-Cursor **项目规则**在 `.cursor/rules/*.mdc`（原根目录 `AGENTS.md` 已合并至 `api-protocol-baseline.mdc`）；**Skill** 在 `.cursor/skills/game-api-sync/`。
+三套 IDE 配置内容对齐：Cursor 用 **Rules + Skills**；VS Code 用 **copilot-instructions + game-api-sync/**；Rider 用 **guidelines + game-api-sync/**。

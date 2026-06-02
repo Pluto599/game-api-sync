@@ -52,5 +52,5 @@ description: >-
 
 ## 参考资料
 
-- `references/ecs-api.md` — ECS API 与 PowerShell
+- `references/ecs-api.md` — ECS API 与 PowerShell（与 `.github/game-api-sync/ecs-api.md`、`.junie/game-api-sync/ecs-api.md` 同步）
 - `references/workflows.md` — 五种入口与 JSON Body

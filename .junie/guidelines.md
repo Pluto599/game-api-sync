@@ -1,17 +1,46 @@
 # game-api-sync（JetBrains Rider / Junie）
 
-协议协作规范见 `.cursor/rules/api-protocol-baseline.mdc`（若已复制到本仓）。
+飞书 Wiki 为唯一权威源。文档快照由 ECS 提供；成员**不安装 lark-cli**。
 
-## 核心约束
+协作 baseline 见 `.junie/game-api-sync/baseline.md`。详细 API 与五种入口见同目录下 `ecs-api.md`、`workflows.md`。
 
-- 飞书 Wiki 为唯一权威源；`config/wiki-registry.yaml`
-- `API_SYNC_BASE`、`API_SYNC_TOKEN` 访问 ECS；禁止本机 `lark-cli`
-- 禁止 `Generated/`；只改已有源文件；不自动 PR
+## 使用时机
 
-## 对齐代码
+- 对齐某模块代码到飞书文档
+- 对比文档与当前实现（只读）
+- 飞书改完文档后刷新 ECS 快照
+- 把代码变更写成飞书待审核草稿
+- 拉取模块 snapshot 或模块列表
 
-1. 确认当前分支
+## 前置条件
+
+1. 已配置 `API_SYNC_BASE`、`API_SYNC_TOKEN`（见 `.junie/game-api-sync/ecs-api.md`）
+2. 当前 Git 分支为开发者有意工作的分支（不切换、不开 PR）
+
+## 指令
+
+### 对齐代码到文档
+
+1. 确认模块名
 2. `GET {API_SYNC_BASE}/api/snapshot?module=<模块名>`，Header `Authorization: Bearer {API_SYNC_TOKEN}`
-3. 按 registry glob 修改现有协议文件；用户自行 commit
+3. 读 `config/wiki-registry.yaml` 的 `client_glob` 或 `server_glob`
+4. 只改**已有**协议文件；禁止 `Generated/`
+5. 列出变更摘要；用户自行 commit
 
-触发语：根据最新飞书接口文档，对齐本仓库【战斗】模块的协议代码
+### 对比文档与实现（只读）
+
+1. 读取 registry 对应源文件全文
+2. `POST /jobs/api-compare`
+3. 展示 `report_md` 与 `defects`；不改代码
+
+### 刷新 ECS 缓存
+
+`POST /jobs/refresh-cache`，Body 含 `module` 或空对象全量
+
+### 同步文档草稿到飞书
+
+`POST /jobs/api-doc-sync`，`summary` 必填
+
+### 禁止
+
+本机 `lark-cli`、自动 PR、切换分支、`Generated/`
