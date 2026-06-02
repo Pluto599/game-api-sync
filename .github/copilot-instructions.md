@@ -1,12 +1,12 @@
-# game-api-sync（VS Code / GitHub Copilot）
+---
 
-飞书 Wiki 为唯一权威源。文档快照由 ECS 提供；成员**不安装 lark-cli**。
+## 飞书接口文档协作（game-api-sync）
 
-协作 baseline 见 `.github/game-api-sync/baseline.md`。环境变量与 API 见 `env-setup.md`、`ecs-api.md`、`workflows.md`。
+飞书 Wiki 为协议唯一权威源（SSOT）。文档快照与写回草稿经 **ECS** 完成；成员机**不运行** `lark-cli`。
 
-## Agent：调用 ECS 前必须先执行（勿让用户手动）
+### Agent：调用 ECS 前必须先执行（勿让用户手动）
 
-在 PowerShell 终端**自动运行**（见 `.github/game-api-sync/env-setup.md`）：
+在 PowerShell 终端自动运行（详见 [.github/game-api-sync/env-setup.md](.github/game-api-sync/env-setup.md)）：
 
 ```powershell
 $env:API_SYNC_BASE = "http://120.27.249.20"
@@ -14,46 +14,32 @@ $env:API_SYNC_TOKEN = "ed7484c01552b1d3c271870a4c128bc7e1c0e5b92c732d33"
 $h = @{ Authorization = "Bearer $env:API_SYNC_TOKEN" }
 ```
 
-## 使用时机
+随后用 `Invoke-RestMethod` 与 `$h` 访问 ECS；禁止 `curl -H`。
 
-- 对齐某模块代码到飞书文档
-- 对比文档与当前实现（只读）
-- 飞书改完文档后刷新 ECS 快照
-- 把代码变更写成飞书待审核草稿
-- 拉取模块 snapshot 或模块列表
+### 何时启用
 
-## 前置条件
+- 对齐某模块**代码**到飞书文档
+- **只读**对比文档与当前实现
+- 飞书文档更新后刷新 ECS 缓存
+- 根据代码变更生成飞书文档**正文草稿**
+- 拉取模块 snapshot / 模块列表
 
-1. Agent 已在本终端执行上述环境变量（非用户手动）
-2. 当前 Git 分支为开发者有意工作的分支（不切换、不开 PR）
+### 流程要点
 
-## 指令
 
-### 对齐代码到文档
+| 场景   | 说明                                                                                                                                                                   |
+| ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 刷新缓存 | `POST /jobs/refresh-cache`，Body 含 `module` 或 `{}` 全量                                                                                                                 |
+| 对比   | 按 [registry-globs.md](.github/game-api-sync/registry-globs.md) 确定 `files` → `POST /jobs/api-compare`（按章节/方向/消息 + 字段类型）；**不改代码**                                                        |
+| 对齐   | 取 snapshot → 合并 glob、用户 @ 路径与目录排查 → 漏网协议文件须**更新** `config/wiki-registry.yaml` → 只改范围内已有文件；**禁止** `Generated/`；用户自行 commit                                            |
+| 写回飞书 | 模式 A：**h2**、**无 caption**、pre×2、**无【合并位置】**、无实例；ECS 插入 h1 客户端/服务端 分区末；见 [doc-write-format.md](.github/game-api-sync/doc-write-format.md) |
 
-1. 确认模块名；必要时 `GET /api/snapshot/modules`
-2. `GET /api/snapshot?module=<模块名>`
-3. 读 `config/wiki-registry.yaml` 的 `client_glob` 或 `server_glob`
-4. 只改**已有**协议文件；禁止 `Generated/`
-5. 列出变更摘要；用户自行 commit
 
-### 对比文档与实现（只读）
-
-1. 读取 registry 对应源文件全文
-2. `POST /jobs/api-compare`（`module`、`repo`、`files`）
-3. 展示 `report_md` 与 `defects`；不改代码
-
-### 刷新 ECS 缓存
-
-`POST /jobs/refresh-cache`，Body：`{"module":"<模块名>"}` 或 `{}`
-
-### 同步文档草稿到飞书
-
-1. 先自动执行环境变量（见 `env-setup.md`）。
-2. 必读 `.github/game-api-sync/doc-write-format.md` 或 `docs/feishu-doc-write-format.md`。
-3. 从代码 diff 生成 DocxXML（`pre lang="TypeScript"`，`caption` 客户端/服务端）。
-4. `POST /jobs/api-doc-sync`；在回复中贴出完整 XML 草稿。
+更多 API 与 JSON Body：[workflows.md](.github/game-api-sync/workflows.md)、[ecs-api.md](.github/game-api-sync/ecs-api.md)。协作底线：[baseline.md](.github/game-api-sync/baseline.md)。
 
 ### 禁止
 
-本机 `lark-cli`、自动 PR、切换分支、`Generated/`
+- 本机 `lark-cli`、自动开 PR、切换分支
+- 新建 `Generated/` 或平行协议目录
+- 未纳入范围的文件不得因 glob 误匹配被修改
+

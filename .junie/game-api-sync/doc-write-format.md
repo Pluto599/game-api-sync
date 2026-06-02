@@ -1,8 +1,20 @@
-# 代码 → 飞书文档格式（Junie）
+# 代码 → 飞书文档格式（Agent 必读）
 
-完整版：仓库根目录 `docs/feishu-doc-write-format.md`。
+完整版：`docs/feishu-doc-write-format.md` §3.1、§4.6。
 
-- **接口文档**：https://my.feishu.cn/wiki/NYw0wSFwji6j3skwW4ocIrkxn6b
-- **类型约束**：https://my.feishu.cn/wiki/CF6owdEKLiYhwmkBrMxcgxK8nde
+## 模式 A
 
-结构：`h1`/`h2` + `<pre lang="TypeScript" caption="客户端|服务端"><code>字段: 类型;</code></pre>`。禁止贴 C#/C++ 源码。
+- **h2** 主题（非 h1 子主题）
+- **禁止** docx_draft 含【合并位置】
+- enum + type → **两个 pre**，无 caption
+- **禁止** 实例行
+
+ECS 插入 **h1 客户端/服务端** 分区末尾。
+
+## 模式 B
+
+可用 **h1** 主题。
+
+## §4.3
+
+协议消息同节多方向时才用 caption 区分 client/server。

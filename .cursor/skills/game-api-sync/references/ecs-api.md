@@ -19,8 +19,7 @@ $h = @{ Authorization = "Bearer $env:API_SYNC_TOKEN" }
 | GET | `/api/snapshot?module=战斗` | 模块快照 JSON |
 | POST | `/jobs/refresh-cache` | Body：`{"module":"战斗"}` 或 `{}` |
 | POST | `/jobs/api-compare` | Body：`module`、`repo`、`files` |
-| POST | `/jobs/api-doc-sync` | Body：`module`、`repo`、`summary`、`files_changed` |
-| POST | `/jobs/api-review` | 同 compare，供 PR CI |
+| POST | `/jobs/api-doc-sync` | Body：`module`、`repo`、`summary`、`files_changed`、`docx_draft`、`target`（`summary` 与 `docx_draft` 至少其一） |
 | GET | `/api/wiki-nodes` | Wiki 节点缓存列表 |
 | GET | `/api/status` | 各模块缓存 revision |
 

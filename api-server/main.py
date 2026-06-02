@@ -25,7 +25,6 @@ REFRESH_SCRIPT = SCRIPTS_DIR / "refresh_all_snapshots.py"
 sys.path.insert(0, str(SCRIPTS_DIR))
 from diff_api import compare_snapshot_to_code  # noqa: E402
 from doc_sync import sync_doc_draft  # noqa: E402
-from feishu_notify import notify_doc_updated  # noqa: E402
 from registry_globs import load_registry, obj_token_to_modules  # noqa: E402
 from refresh_all_snapshots import refresh_snapshots  # noqa: E402
 
@@ -43,16 +42,13 @@ class CompareBody(BaseModel):
 class DocSyncBody(BaseModel):
     module: str
     repo: str = "client"
-    summary: str
+    summary: str = ""
     files_changed: list[str] = []
     target: str = "api_docs"
+    docx_draft: str | None = None
 
 
-class ApiReviewBody(CompareBody):
-    pr_number: int | None = None
-
-
-def _compare_from_cache(body: CompareBody, *, report_title: str | None = None) -> dict[str, Any]:
+def _compare_from_cache(body: CompareBody) -> dict[str, Any]:
     name = body.module.strip()
     path = SNAPSHOT_DIR / f"{name}.json"
     if not path.is_file():
@@ -68,7 +64,6 @@ def _compare_from_cache(body: CompareBody, *, report_title: str | None = None) -
         body.files,
         module=name,
         repo=body.repo,
-        report_title=report_title,
     )
 
 
@@ -173,26 +168,9 @@ def api_compare(
     return _compare_from_cache(body)
 
 
-@app.post("/jobs/api-review")
-def api_review(
-    body: ApiReviewBody,
-    authorization: str | None = Header(None),
-) -> dict[str, Any]:
-    """PR Review: same as api-compare, titled for Pull Request comments."""
-    check_auth(authorization)
-    title = f"# API Review（PR）：{body.module.strip()}"
-    if body.pr_number is not None:
-        title += f" · PR #{body.pr_number}"
-    result = _compare_from_cache(body, report_title=title)
-    result["kind"] = "pr_review"
-    if body.pr_number is not None:
-        result["pr_number"] = body.pr_number
-    return result
-
-
 @app.get("/api/status")
 def api_status(authorization: str | None = Header(None)) -> dict[str, Any]:
-    """Latest cached snapshot metadata per module (for Bot status / debugging)."""
+    """Latest cached snapshot metadata per module."""
     check_auth(authorization)
     SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
     items: list[dict[str, Any]] = []
@@ -215,7 +193,7 @@ def api_status(authorization: str | None = Header(None)) -> dict[str, Any]:
 
 @app.post("/webhook/feishu")
 async def feishu_webhook(request: Request) -> dict[str, Any]:
-    """Feishu event URL verification + doc update → refresh snapshot (+ optional group notify)."""
+    """Feishu event URL verification + doc update → refresh snapshot."""
     body = await request.json()
     if body.get("type") == "url_verification" or "challenge" in body:
         return {"challenge": body.get("challenge")}
@@ -242,14 +220,11 @@ async def feishu_webhook(request: Request) -> dict[str, Any]:
             refresh_snapshots(REGISTRY, SNAPSHOT_DIR, m)
         modules_note = ",".join(modules)
 
-    for m in (modules if modules else []):
-        notify_doc_updated(m)
-
     return {
         "ok": True,
         "event_type": header.get("event_type"),
         "refreshed": modules_note,
-        "notified": modules,
+        "modules": modules,
     }
 
 
@@ -258,10 +233,10 @@ def api_doc_sync(
     body: DocSyncBody,
     authorization: str | None = Header(None),
 ) -> dict[str, Any]:
-    """Append pending-review callout draft to Feishu module doc (ECS runs lark-cli)."""
+    """Append agent DocxXML to Feishu doc body (h1/h2 marked 待审查; no callout)."""
     check_auth(authorization)
-    if not body.summary.strip():
-        raise HTTPException(status_code=400, detail="summary must not be empty")
+    if not body.summary.strip() and not (body.docx_draft and body.docx_draft.strip()):
+        raise HTTPException(status_code=400, detail="summary or docx_draft required")
     try:
         return sync_doc_draft(
             REGISTRY,
@@ -270,6 +245,7 @@ def api_doc_sync(
             summary=body.summary,
             files_changed=body.files_changed,
             target=body.target,
+            docx_draft=body.docx_draft,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e

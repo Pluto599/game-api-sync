@@ -20,6 +20,9 @@ def load_registry(path: Path) -> dict:
     return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
+from lark_cli_env import lark_cli_subprocess_env  # noqa: E402
+
+
 def lark_fetch(obj_token: str) -> dict:
     result = subprocess.run(
         [
@@ -40,6 +43,7 @@ def lark_fetch(obj_token: str) -> dict:
         capture_output=True,
         text=True,
         check=True,
+        env=lark_cli_subprocess_env(),
     )
     return json.loads(result.stdout)
 

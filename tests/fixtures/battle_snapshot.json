@@ -1,0 +1,30 @@
+{
+  "module": "战斗",
+  "api_docs": {
+    "module": "战斗",
+    "structs": [
+      {
+        "name": "PlayerReadyMsg",
+        "direction": "client",
+        "section": "准备 (切换场景完成)",
+        "fields": [
+          {"name": "type", "type": "number", "optional": false},
+          {"name": "uid", "type": "string", "optional": false}
+        ],
+        "raw_code": "PlayerReadyMsg: {\n  type: number;\n  uid: string;\n};"
+      },
+      {
+        "name": "EnterBattleReq",
+        "direction": "client",
+        "section": "进入战斗",
+        "fields": [
+          {"name": "roomId", "type": "string", "optional": false},
+          {"name": "heroId", "type": "number", "optional": false}
+        ],
+        "raw_code": "EnterBattleReq: {\n  roomId: string;\n  heroId: number;\n};"
+      }
+    ],
+    "enums": []
+  },
+  "type_constraints": null
+}

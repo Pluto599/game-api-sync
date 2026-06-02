@@ -1,0 +1,17 @@
+{
+  "module": "网络相关",
+  "api_docs": null,
+  "type_constraints": {
+    "module": "网络相关",
+    "structs": [],
+    "enums": [
+      {
+        "name": "PacketType",
+        "members": [
+          {"name": "Heartbeat", "value": "0"},
+          {"name": "Battle", "value": "1"}
+        ]
+      }
+    ]
+  }
+}

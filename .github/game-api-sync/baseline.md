@@ -7,6 +7,8 @@
 
 Agent 调用 ECS 前须在终端执行环境变量，见同目录 `env-setup.md`（勿让用户手动设置）。
 
+对齐/对比：glob 与用户要求、目录排查并用；协议文件不在 glob 中时更新 `wiki-registry.yaml`（见 `registry-globs.md`）。
+
 ## 触发语示例
 
 - 根据最新飞书接口文档，对齐本仓库【模块名】模块的协议代码

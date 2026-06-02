@@ -161,7 +161,10 @@ def parse_docx_content(
             raw = _text_from_code_el(code_el)
             if not raw.strip():
                 continue
-            direction = _detect_direction(caption, current_section or "")
+            # Inherit client/server from enclosing h1 (e.g. h1 客户端 → h2 武器 → pre without caption).
+            direction = _detect_direction(
+                caption, f"{current_h1 or ''} {current_section or ''}"
+            )
             snap.raw_blocks.append(
                 {
                     "section": current_section or "",

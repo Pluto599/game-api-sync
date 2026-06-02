@@ -1,41 +1,30 @@
 # 代码 → 飞书文档格式（Agent 必读）
 
-完整版：`docs/feishu-doc-write-format.md`（仓库根目录）。
+完整版：`docs/feishu-doc-write-format.md` §3.1、§4.6。
 
 ## 写哪份文档
 
-| 变更 | 目标 | `target` |
-|------|------|----------|
-| 请求/响应、消息字段 | [接口文档](https://my.feishu.cn/wiki/NYw0wSFwji6j3skwW4ocIrkxn6b) 模块页 | `api_docs` |
-| enum、通用 struct、Envelope | [类型约束](https://my.feishu.cn/wiki/CF6owdEKLiYhwmkBrMxcgxK8nde) | `type_constraints` |
+| 变更 | target |
+|------|--------|
+| 协议消息 | `api_docs` |
+| 跨模块类型 | `type_constraints` |
+| 单模块配置/表（仅类型） | `api_docs` |
 
-## 结构（与现网一致）
+## 模式 A（页内已有 h1 客户端 / h1 服务端）
 
-**接口文档**：`h1` = 请求/主题 → 可选 `h2` → `pre lang="TypeScript"`
+1. **`h2 <主题名>（agent生成，待审查）`**（如「武器」），禁止 **`h1` 子主题**。
+2. **`docx_draft` 禁止** `<p>【合并位置】…</p>`（ECS 会删掉；也不要写进飞书）。插入位置由 ECS 按 `repo` 放到对应 **h1 分区末尾**。
+3. 配置类 **不写 caption**；enum + type → **两个 pre**。
+4. **禁止** 实例行（Knife 字面量、`.asset` 路径）。
 
-**类型约束**：`h1` = 类型主题 → `pre`（struct/enum）
+## 模式 B
 
-## 代码块模板
+无 h1 客户端/服务端 时，可用 **`h1 <主题名>（agent生成，待审查）`**。
 
-```xml
-<pre lang="TypeScript" caption="客户端">
-<code>MessageName: {
-  fieldName: string;  // 中文说明
-};</code>
-</pre>
-```
+## 协议消息（§4.3）
 
-- `caption` 含 **客户端** / **服务端**（与代码仓一致）
-- 仅伪 TS 字段行，禁止粘贴 C#/C++ 源码
-- enum 整块一个 pre：`enum Name { A = 0, B = 1, }`
+同节多方向时才用 `caption="客户端"` / `caption="服务端"`。
 
-## Agent 流程
+## 流程
 
-1. 读代码 diff + 可选 `GET /api/snapshot?module=…`
-2. 生成 **DocxXML 草稿**（仅变更章节）
-3. `POST /jobs/api-doc-sync`（`summary` + `files_changed`）
-4. 在对话中**全文贴出** DocxXML，供负责人合并；ECS callout 为黄色待审核外壳
-
-## 禁止
-
-不直接改正文；不新建 `Generated/`；共享类型勿在接口页重复定义。
+snapshot → DocxXML（无合并位置段）→ `api-doc-sync` → 回复说明审阅要点即可。
