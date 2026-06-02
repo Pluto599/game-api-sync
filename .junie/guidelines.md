@@ -2,7 +2,17 @@
 
 飞书 Wiki 为唯一权威源。文档快照由 ECS 提供；成员**不安装 lark-cli**。
 
-协作 baseline 见 `.junie/game-api-sync/baseline.md`。详细 API 与五种入口见同目录下 `ecs-api.md`、`workflows.md`。
+协作 baseline 见 `.junie/game-api-sync/baseline.md`。环境变量与 API 见 `env-setup.md`、`ecs-api.md`、`workflows.md`。
+
+## Agent：调用 ECS 前必须先执行（勿让用户手动）
+
+在 Terminal（PowerShell）中**自动运行**（见 `.junie/game-api-sync/env-setup.md`）：
+
+```powershell
+$env:API_SYNC_BASE = "http://120.27.249.20"
+$env:API_SYNC_TOKEN = "ed7484c01552b1d3c271870a4c128bc7e1c0e5b92c732d33"
+$h = @{ Authorization = "Bearer $env:API_SYNC_TOKEN" }
+```
 
 ## 使用时机
 
@@ -14,7 +24,7 @@
 
 ## 前置条件
 
-1. 已配置 `API_SYNC_BASE`、`API_SYNC_TOKEN`（见 `.junie/game-api-sync/ecs-api.md`）
+1. Agent 已在本终端执行上述环境变量（非用户手动）
 2. 当前 Git 分支为开发者有意工作的分支（不切换、不开 PR）
 
 ## 指令

@@ -19,10 +19,12 @@ description: >-
 
 ## 前置条件
 
-1. 环境变量 `API_SYNC_BASE`、`API_SYNC_TOKEN` 已配置（见 `references/ecs-api.md`）
+1. **Agent 先在终端执行环境变量**（见 `references/env-setup.md`，每次调用 ECS 前必做，勿让用户手动）
 2. 当前 Git 分支是开发者**有意工作的分支**（不切换分支、不开 PR）
 
 ## 指令
+
+**每一步调用 ECS 前**，若尚未在本终端执行过环境变量，先运行 `references/env-setup.md` 中的三行 PowerShell。
 
 ### 对齐代码到文档
 
@@ -52,5 +54,6 @@ description: >-
 
 ## 参考资料
 
-- `references/ecs-api.md` — ECS API 与 PowerShell（与 `.github/game-api-sync/ecs-api.md`、`.junie/game-api-sync/ecs-api.md` 同步）
+- `references/env-setup.md` — **Agent 自动执行**的环境变量（每次 ECS 调用前）
+- `references/ecs-api.md` — ECS API 与请求示例
 - `references/workflows.md` — 五种入口与 JSON Body

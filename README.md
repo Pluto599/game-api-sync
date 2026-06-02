@@ -10,14 +10,15 @@
 
 ### 1. 环境变量
 
-在任意 PowerShell 窗口先执行（当前窗口立即生效）：
+**Agent 执行协议相关功能时**，须在终端**自动运行**下列命令（已写入 Cursor Rules/Skills、Copilot、Junie 文档；**勿再让用户手动粘贴**）：
 
 ```powershell
 $env:API_SYNC_BASE = "http://120.27.249.20"
 $env:API_SYNC_TOKEN = "ed7484c01552b1d3c271870a4c128bc7e1c0e5b92c732d33"
+$h = @{ Authorization = "Bearer $env:API_SYNC_TOKEN" }
 ```
 
-若希望**每次打开终端自动带上**，任选下面一种方式持久化。
+人类用户若希望**本机每次开终端自动带上**（可选），可写入 Profile 或 IDE 配置：
 
 #### 写入 PowerShell Profile（推荐，本机所有 PowerShell 终端生效）
 
@@ -159,7 +160,7 @@ Invoke-RestMethod -Headers $h "$env:API_SYNC_BASE/api/snapshot/modules"
 2. 打开 **client** 或 **server** 仓库（一次只对一个仓）。
 3. 在 Cursor / Copilot / Rider 中说：
   > 根据最新飞书接口文档，对齐本仓库战斗模块代码
-4. Agent 按 Skill / `.cursor/rules/` 执行：
+4. Agent 按 Skill / Rules 执行（**Agent 自动设置环境变量**后调 ECS）：
   - `GET $env:API_SYNC_BASE/api/snapshot?module=战斗` 取文档解析结果（AST/字段列表）；
   - 读本仓 `config/wiki-registry.yaml` 的 `client_glob` 或 `server_glob`，定位**已有** `.cs` / `.h` 等文件；
   - 就地改 struct / enum / 序列化逻辑，**不**创建 `Generated/`；

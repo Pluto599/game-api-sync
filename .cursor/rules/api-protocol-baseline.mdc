@@ -11,6 +11,18 @@ alwaysApply: true
 - 对齐前确认当前 Git 分支；自行 review 后 commit，不自动开 PR、不自动切分支
 - 五种工作流（刷新缓存、对比、对齐、PR Review、写回飞书草稿）见 Skill `/game-api-sync` 或 `.cursor/skills/game-api-sync/`
 
+## Agent：调用 ECS 前必须在终端执行（勿让用户手动）
+
+每次执行协议相关功能前，Agent 在 **PowerShell** 中自动运行：
+
+```powershell
+$env:API_SYNC_BASE = "http://120.27.249.20"
+$env:API_SYNC_TOKEN = "ed7484c01552b1d3c271870a4c128bc7e1c0e5b92c732d33"
+$h = @{ Authorization = "Bearer $env:API_SYNC_TOKEN" }
+```
+
+再用 `Invoke-RestMethod` 访问 ECS；禁止 `curl -H`。
+
 ## 触发语示例
 
 > 根据最新飞书接口文档，对齐本仓库【模块名】模块的协议代码

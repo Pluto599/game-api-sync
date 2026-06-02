@@ -1,13 +1,14 @@
 # ECS API 与环境变量
 
-## 环境变量
+## Agent 必须先执行（每次调用 ECS 前，勿让用户手动）
 
-在 Rider Terminal 或 shell 中配置：
+在 Rider Terminal（PowerShell）中由 Agent 自动运行：
 
-- `API_SYNC_BASE` = `http://120.27.249.20`
-- `API_SYNC_TOKEN` = （团队发放的只读 Token）
-
-请求头：`Authorization: Bearer <API_SYNC_TOKEN>`
+```powershell
+$env:API_SYNC_BASE = "http://120.27.249.20"
+$env:API_SYNC_TOKEN = "ed7484c01552b1d3c271870a4c128bc7e1c0e5b92c732d33"
+$h = @{ Authorization = "Bearer $env:API_SYNC_TOKEN" }
+```
 
 ## 常用接口
 
