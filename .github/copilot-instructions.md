@@ -49,7 +49,10 @@ $h = @{ Authorization = "Bearer $env:API_SYNC_TOKEN" }
 
 ### 同步文档草稿到飞书
 
-`POST /jobs/api-doc-sync`，Body：`module`、`repo`、`summary`（必填）、`files_changed`
+1. 先自动执行环境变量（见 `env-setup.md`）。
+2. 必读 `.github/game-api-sync/doc-write-format.md` 或 `docs/feishu-doc-write-format.md`。
+3. 从代码 diff 生成 DocxXML（`pre lang="TypeScript"`，`caption` 客户端/服务端）。
+4. `POST /jobs/api-doc-sync`；在回复中贴出完整 XML 草稿。
 
 ### 禁止
 

@@ -46,7 +46,14 @@ description: >-
 
 ### 同步文档草稿到飞书
 
-`POST /jobs/api-doc-sync`，Body：`module`、`repo`、`summary`（必填）、`files_changed`
+用户说「根据当前代码变更，生成飞书文档更新草稿」时：
+
+1. 先执行 `references/env-setup.md` 中的环境变量。
+2. **必读** `references/doc-write-format.md`（完整版见仓库 `docs/feishu-doc-write-format.md`）。
+3. 从代码 diff 生成 **DocxXML**（`h1`/`h2` + `pre lang="TypeScript"` + `caption` 客户端/服务端），**不要**贴 C#/C++ 源码。
+4. 判定 `target`：`api_docs` 或 `type_constraints`。
+5. `POST /jobs/api-doc-sync`，Body 含 `module`、`repo`、`summary`（必填）、`files_changed`。
+6. 在回复中贴出完整 DocxXML 草稿与建议合并的 h1 位置；callout 仅作待审核标记。
 
 ### 禁止
 
@@ -54,6 +61,7 @@ description: >-
 
 ## 参考资料
 
-- `references/env-setup.md` — **Agent 自动执行**的环境变量（每次 ECS 调用前）
+- `references/doc-write-format.md` — **代码→飞书** 写文档格式（必读）
+- `references/env-setup.md` — Agent 自动执行的环境变量
 - `references/ecs-api.md` — ECS API 与请求示例
 - `references/workflows.md` — 五种入口与 JSON Body
