@@ -9,7 +9,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from compare_targets import resolve_compare_targets, scope_type_names_from_code
 from extract_code import extract_from_sources, _normalize_type
+from message_aliases import load_aliases, resolve_code_name
 
 
 def _message_name_from_raw(raw: str) -> str | None:
@@ -17,11 +19,19 @@ def _message_name_from_raw(raw: str) -> str | None:
     return m.group(1) if m else None
 
 
-def _doc_messages(snapshot: dict[str, Any], repo: str) -> list[dict[str, Any]]:
-    """Messages from api_docs + type_constraints structs, filtered by repo direction."""
+def _doc_messages(
+    snapshot: dict[str, Any],
+    repo: str,
+    *,
+    target: str | None = None,
+) -> list[dict[str, Any]]:
+    """Messages from snapshot structs, filtered by repo direction and optional target."""
     repo_dir = "client" if repo == "client" else "server"
+    parts = ("api_docs", "type_constraints")
+    if target:
+        parts = (target,)
     out: list[dict[str, Any]] = []
-    for part in ("api_docs", "type_constraints"):
+    for part in parts:
         block = snapshot.get(part)
         if not block:
             continue
@@ -61,16 +71,53 @@ def _message_key(section: str, direction: str, name: str) -> str:
 
 
 def _index_code_messages(code: dict[str, Any]) -> dict[str, dict]:
-    by_name: dict[str, list[dict]] = {}
-    for msg in code.get("messages", []):
-        by_name.setdefault(msg["name"], []).append(msg)
     index: dict[str, dict] = {}
     for msg in code.get("messages", []):
         key = _message_key(msg.get("section") or msg["name"], msg["direction"], msg["name"])
         index[key] = msg
-        # also allow match by message name only when section differs
         index[msg["name"]] = msg
     return index
+
+
+def _find_code_message(
+    dm: dict[str, Any],
+    code_index: dict[str, dict],
+    *,
+    module: str,
+    aliases: dict[str, dict[str, str]],
+) -> tuple[dict | None, str | None]:
+    """Match doc block to code; return (message, matched_via)."""
+    name = dm.get("name") or ""
+    section = dm.get("section") or ""
+
+    cm = code_index.get(_message_key(section, dm["direction"], name))
+    if cm:
+        return cm, "exact_key"
+    if name:
+        cm = code_index.get(name)
+        if cm:
+            return cm, "name"
+
+    alias_target = resolve_code_name(
+        module, doc_name=name, section=section, aliases=aliases
+    )
+    if alias_target:
+        cm = code_index.get(alias_target)
+        if cm:
+            return cm, "alias"
+
+    for key in (section, name):
+        if not key:
+            continue
+        alias_target = resolve_code_name(
+            module, doc_name=key, section=key, aliases=aliases
+        )
+        if alias_target:
+            cm = code_index.get(alias_target)
+            if cm:
+                return cm, "alias"
+
+    return None, None
 
 
 def _field_map(fields: list[dict]) -> dict[str, dict]:
@@ -95,7 +142,9 @@ def _compare_field_sets(
             if not _types_compatible(df["type"], cf["type"]):
                 type_mismatch.append(f"`{n}`: 文档 `{df['type']}` vs 代码 `{cf['type']}`")
         if df.get("optional") != cf.get("optional"):
-            optional_mismatch.append(f"`{n}`: optional 文档={df.get('optional')} 代码={cf.get('optional')}")
+            optional_mismatch.append(
+                f"`{n}`: optional 文档={df.get('optional')} 代码={cf.get('optional')}"
+            )
     return {
         "missing_in_code": missing_in_code,
         "missing_in_doc": missing_in_doc,
@@ -115,7 +164,12 @@ def _types_compatible(a: str, b: str) -> bool:
     return False
 
 
-def _compare_enums(doc_enums: list[dict], code_enums: list[dict]) -> list[dict[str, Any]]:
+def _compare_enums(
+    doc_enums: list[dict],
+    code_enums: list[dict],
+    *,
+    scope_type_names: set[str] | None = None,
+) -> list[dict[str, Any]]:
     code_by_name = {e["name"]: e for e in code_enums}
     issues: list[dict[str, Any]] = []
     for de in doc_enums:
@@ -149,7 +203,10 @@ def _compare_enums(doc_enums: list[dict], code_enums: list[dict]) -> list[dict[s
                             "code": cmem[k],
                         }
                     )
-    for name in sorted(set(code_by_name) - {e.get("name") for e in doc_enums if e.get("name")}):
+    doc_enum_names = {e.get("name") for e in doc_enums if e.get("name")}
+    for name in sorted(set(code_by_name) - doc_enum_names):
+        if scope_type_names is not None and name not in scope_type_names:
+            continue
         issues.append({"enum": name, "kind": "missing_in_doc"})
     return issues
 
@@ -158,7 +215,6 @@ def _compare_network_constants(
     doc_enums: list[dict],
     code: dict[str, Any],
 ) -> list[str]:
-    """Align PacketType / MessageId style enums and consts for 网络相关."""
     lines: list[str] = []
     code_const = {c["name"]: c["value"] for c in code.get("constants", [])}
     for de in doc_enums:
@@ -180,6 +236,16 @@ def _compare_network_constants(
     return lines
 
 
+def _doc_enums_for_target(snapshot: dict[str, Any], target: str | None) -> list[dict]:
+    out: list[dict] = []
+    parts = (target,) if target else ("api_docs", "type_constraints")
+    for part in parts:
+        block = snapshot.get(part)
+        if block:
+            out.extend(block.get("enums", []))
+    return out
+
+
 def compare_snapshot_to_code(
     snapshot: dict[str, Any],
     files: dict[str, str],
@@ -187,19 +253,28 @@ def compare_snapshot_to_code(
     module: str,
     repo: str,
     report_title: str | None = None,
+    target: str | None = None,
+    scope_type_names: set[str] | None = None,
+    aliases: dict[str, dict[str, str]] | None = None,
+    registry_modules: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    aliases = aliases if aliases is not None else load_aliases()
     code = extract_from_sources(files, repo=repo)
-    doc_msgs = _doc_messages(snapshot, repo)
+    if scope_type_names is None:
+        scope_type_names = scope_type_names_from_code(code)
+
+    doc_msgs = _doc_messages(snapshot, repo, target=target)
     code_index = _index_code_messages(code)
 
     message_results: list[dict[str, Any]] = []
     defects: list[str] = []
+    ignored_out_of_scope: list[str] = []
 
     for dm in doc_msgs:
         name = dm.get("name") or ""
-        cm = code_index.get(_message_key(dm["section"], dm["direction"], name))
-        if not cm and name:
-            cm = code_index.get(name)
+        cm, matched_via = _find_code_message(
+            dm, code_index, module=module, aliases=aliases
+        )
         if not cm:
             message_results.append(
                 {
@@ -229,42 +304,46 @@ def compare_snapshot_to_code(
                 )
             if diff["type_mismatch"]:
                 defects.append(f"`{name}` 类型不一致 {len(diff['type_mismatch'])} 处")
-        message_results.append(
-            {
-                "message": name,
-                "section": dm["section"],
-                "direction": dm["direction"],
-                "status": status,
-                "file": cm.get("file"),
-                **diff,
-            }
-        )
+        row: dict[str, Any] = {
+            "message": cm["name"],
+            "section": dm["section"],
+            "direction": dm["direction"],
+            "status": status,
+            "file": cm.get("file"),
+            **diff,
+        }
+        if matched_via == "alias":
+            row["matched_via"] = "alias"
+            row["doc_title"] = name or dm["section"]
+        message_results.append(row)
 
-    # code messages not matched from doc
     matched_code_names: set[str] = set()
     for dm in doc_msgs:
-        cm = code_index.get(dm.get("name") or "")
+        cm, _ = _find_code_message(dm, code_index, module=module, aliases=aliases)
         if cm:
             matched_code_names.add(cm["name"])
-    for msg in code.get("messages", []):
-        if msg["name"] not in matched_code_names:
-            message_results.append(
-                {
-                    "message": msg["name"],
-                    "section": msg.get("section"),
-                    "direction": msg["direction"],
-                    "status": "missing_in_doc",
-                    "code_fields": [f["name"] for f in msg["fields"]],
-                }
-            )
-            defects.append(f"代码类型 `{msg['name']}` 在文档（同方向）中未描述")
 
-    doc_enums: list[dict] = []
-    for part in ("api_docs", "type_constraints"):
-        block = snapshot.get(part)
-        if block:
-            doc_enums.extend(block.get("enums", []))
-    enum_issues = _compare_enums(doc_enums, code.get("enums", []))
+    for msg in code.get("messages", []):
+        if msg["name"] in matched_code_names:
+            continue
+        if scope_type_names is not None and msg["name"] not in scope_type_names:
+            ignored_out_of_scope.append(msg["name"])
+            continue
+        message_results.append(
+            {
+                "message": msg["name"],
+                "section": msg.get("section"),
+                "direction": msg["direction"],
+                "status": "missing_in_doc",
+                "code_fields": [f["name"] for f in msg["fields"]],
+            }
+        )
+        defects.append(f"代码类型 `{msg['name']}` 在文档（同方向）中未描述")
+
+    doc_enums = _doc_enums_for_target(snapshot, target)
+    enum_issues = _compare_enums(
+        doc_enums, code.get("enums", []), scope_type_names=scope_type_names
+    )
     for ei in enum_issues:
         if ei["kind"] == "missing_in_code":
             defects.append(f"文档枚举 `{ei['enum']}` 代码未找到")
@@ -275,15 +354,24 @@ def compare_snapshot_to_code(
     if module in ("网络相关", "联机大厅"):
         network_notes = _compare_network_constants(doc_enums, code)
 
+    target_note = f"`{target}`" if target else "api_docs + type_constraints"
     lines = [
         report_title or f"# API 对比报告：{module}",
         "",
         f"- 仓库：`{repo}`（比对 **{repo}** 方向文档块与代码）",
+        f"- 对比目标：{target_note}",
         f"- 文件数：{len(files)}",
         f"- 文档消息块：{len(doc_msgs)}",
         f"- 代码消息类型：{len(code.get('messages', []))}",
+        f"- scope 内类型数：{len(scope_type_names)}",
         "",
     ]
+    if ignored_out_of_scope:
+        lines.append(
+            f"- 已忽略 scope 外代码类型：{len(ignored_out_of_scope)} 个（见附录）"
+        )
+        lines.append("")
+
     if not defects and not enum_issues and not network_notes:
         lines.append("## 结论\n\n未发现 section/方向/字段级差异。")
     else:
@@ -295,12 +383,13 @@ def compare_snapshot_to_code(
         lines.append("")
 
     lines.append("## 消息级对比\n")
-    lines.append("| 章节 | 方向 | 消息 | 状态 | 缺代码字段 | 缺文档字段 | 类型不一致 |")
-    lines.append("|------|------|------|------|------------|------------|------------|")
+    lines.append("| 章节 | 方向 | 消息 | 状态 | 匹配 | 缺代码字段 | 缺文档字段 | 类型不一致 |")
+    lines.append("|------|------|------|------|------|------------|------------|------------|")
     for r in message_results:
+        via = r.get("matched_via") or ""
         lines.append(
             f"| {r.get('section','')} | {r.get('direction','')} | {r.get('message','')} | "
-            f"{r.get('status','')} | "
+            f"{r.get('status','')} | {via} | "
             f"{len(r.get('missing_in_code') or [])} | "
             f"{len(r.get('missing_in_doc') or [])} | "
             f"{len(r.get('type_mismatch') or [])} |"
@@ -331,6 +420,14 @@ def compare_snapshot_to_code(
             lines.append(f"- {n}")
         lines.append("")
 
+    if ignored_out_of_scope:
+        lines.append("## 附录：scope 外已忽略代码类型\n")
+        for n in sorted(ignored_out_of_scope)[:50]:
+            lines.append(f"- `{n}`")
+        if len(ignored_out_of_scope) > 50:
+            lines.append(f"- … 另有 {len(ignored_out_of_scope) - 50} 个")
+        lines.append("")
+
     lines.append("## 扫描文件\n")
     for p in sorted(files):
         lines.append(f"- `{p}`")
@@ -339,11 +436,68 @@ def compare_snapshot_to_code(
         "ok": True,
         "module": module,
         "repo": repo,
+        "target": target,
         "defects": defects,
         "message_results": message_results,
         "enum_issues": enum_issues,
         "network_notes": network_notes,
+        "ignored_out_of_scope": ignored_out_of_scope,
         "report_md": "\n".join(lines),
+    }
+
+
+def compare_module_all_targets(
+    snapshot: dict[str, Any],
+    files: dict[str, str],
+    *,
+    module: str,
+    repo: str,
+    registry_modules: dict[str, Any] | None = None,
+    explicit_target: str | None = None,
+    scope_type_names: set[str] | None = None,
+) -> dict[str, Any]:
+    """Run compare for each resolved target; merge reports."""
+    targets = resolve_compare_targets(
+        snapshot, registry_modules, module, explicit_target=explicit_target
+    )
+    code = extract_from_sources(files, repo=repo)
+    scope = scope_type_names if scope_type_names is not None else scope_type_names_from_code(code)
+    aliases = load_aliases()
+
+    parts: list[dict[str, Any]] = []
+    all_defects: list[str] = []
+    for t in targets:
+        tgt = t["target"]
+        r = compare_snapshot_to_code(
+            snapshot,
+            files,
+            module=module,
+            repo=repo,
+            target=tgt,
+            scope_type_names=scope,
+            aliases=aliases,
+            registry_modules=registry_modules,
+            report_title=f"## 对比目标：`{tgt}`（{t['reason']}）",
+        )
+        parts.append(r)
+        all_defects.extend(r["defects"])
+
+    if len(parts) == 1:
+        parts[0]["compare_targets"] = targets
+        return parts[0]
+
+    md_parts = [f"# API 对比报告：{module}", ""]
+    for p in parts:
+        md_parts.append(p["report_md"])
+        md_parts.append("")
+    return {
+        "ok": True,
+        "module": module,
+        "repo": repo,
+        "compare_targets": targets,
+        "defects": all_defects,
+        "parts": parts,
+        "report_md": "\n".join(md_parts),
     }
 
 
@@ -361,7 +515,7 @@ def main() -> None:
     payload = json.loads(files_path.read_text(encoding="utf-8"))
     module = snapshot.get("module", "unknown")
     files: dict[str, str] = payload.get("files", payload)
-    result = compare_snapshot_to_code(snapshot, files, module=module, repo=repo)
+    result = compare_module_all_targets(snapshot, files, module=module, repo=repo)
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 

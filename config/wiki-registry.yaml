@@ -38,29 +38,56 @@ modules:
     api_docs_obj: null
     type_constraints_obj: K6ZpdcD12obhbKxVj3RcdqOonZs
 
-# 代码路径（后续按 client/server 实际目录补全 server_glob）
+# 代码路径：client 用 glob；server 宜显式列表（勿含共享 protocol.h / server.h 全量）
+# 复制到 server 仓后按实际目录改路径；详见 config/message_aliases.yaml
 module_map:
   登录界面:
     client_glob: "Assets/Scripts/**/*Login*.{cs}"
-    server_glob: "**/*login*/**/*.{h,hpp,cpp}"
+    server_glob:
+      - src/protocol/login/register_req.h
+      - src/protocol/login/login_req.h
+      - src/handlers/login_handler.cpp
+    _notes: "server 路径为示例，部署 server 仓时替换为真实文件"
   开始界面:
     client_glob: "Assets/Scripts/**/*Home*.{cs}"
-    server_glob: "**/*home*/**/*.{h,hpp,cpp}"
+    server_glob:
+      - src/protocol/home/state_query.h
+      - src/handlers/home_handler.cpp
   联机大厅:
     client_glob: "Assets/Scripts/**/*Room*.{cs}"
-    server_glob: "**/*room*/**/*.{h,hpp,cpp}"
+    server_glob:
+      - src/protocol/room/create_room.h
+      - src/protocol/room/join_room.h
+      - src/protocol/room/list_rooms.h
+      - src/protocol/room/set_ready.h
+      - src/handlers/room_handler.cpp
   地图:
     client_glob: "Assets/Scripts/**/*Map*.{cs}"
-    server_glob: "**/*map*/**/*.{h,hpp,cpp}"
+    server_glob:
+      - src/protocol/map/map_move.h
+      - src/handlers/map_handler.cpp
   商店:
     client_glob: "Assets/Scripts/**/*Shop*.{cs}"
-    server_glob: "**/*shop*/**/*.{h,hpp,cpp}"
+    server_glob:
+      - src/protocol/shop/shop_init.h
+      - src/protocol/shop/shop_sync.h
+      - src/handlers/shop_handler.cpp
   战斗:
     client_glob: "Assets/Scripts/**/*Battle*.{cs}"
-    server_glob: "**/*battle*/**/*.{h,hpp,cpp}"
+    server_glob:
+      - src/protocol/battle/battle_ready.h
+      - src/protocol/battle/battle_sync.h
+      - src/protocol/battle/battle_shoot.h
+      - src/protocol/battle/battle_wait.h
+      - src/protocol/battle/battle_frame.h
+      - src/handlers/battle_handler.cpp
   网络相关:
     client_glob: "Assets/Scripts/**/*Network*.{cs}"
-    server_glob: "**/*network*/**/*.{h,hpp,cpp}"
+    server_glob:
+      - src/protocol/network/packet_type.h
+      - src/protocol/network/envelope.h
   玩家存档:
     client_glob: "Assets/Scripts/**/*Player*.{cs}"
-    server_glob: "**/*player*/**/*.{h,hpp,cpp}"
+    server_glob:
+      - src/protocol/player/player_data.h
+      - src/protocol/player/player_basic_info.h

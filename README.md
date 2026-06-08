@@ -10,7 +10,7 @@
 
 ### 1. 在 IDE 主动请求 ECS 刷新数据缓存
 
-**场景**：飞书文档刚改完，或对齐/对比前需要**最新**快照；由 ECS 执行 `lark-cli` 拉取与解析，本机不装 `lark-cli`。
+**场景**：飞书文档刚改完，或对齐/对比前需要**最新**快照；由 ECS 执行 `lark-cli` 拉取与解析，本机不装 `lark-cli`。默认会先比对飞书 `revision_id`，与缓存一致则**不**全量拉取；强制刷新 Body 加 `"force": true`。
 
 **你怎么做**：
 
@@ -27,7 +27,7 @@
 **你怎么做**：
 
 1. 打开 client 或 server 仓库，切到当前工作分支。
-2. 可选：先刷新该模块 ECS 缓存。
+2. Agent 先 `POST /jobs/refresh-cache`（**当前模块**；默认 **revision 比对**，飞书未改则跳过全量拉取；用户说「飞书刚改/强制刷新」时传 `"force":true`）。
 3. 在 IDE 中说：
   对比【战斗】模块飞书文档与当前仓库实现的差异，生成对比报告并指出实现缺陷
 4. Agent 执行：
@@ -81,14 +81,46 @@ ECS 写入飞书正文（模式 A 插入 **h1 客户端/服务端** 分区末尾
 
 ---
 
+### 5. 合并到主分支后自动同步飞书文档（GitHub Actions）
+
+**场景**：协议代码合并进 **client / server** 仓库的 `main` 后，由 CI 自动对比飞书快照与代码；仅在**代码领先于文档**时，把变更写成飞书正文草稿（标题含 **CI生成，待审查**），供负责人审阅合并。PR 阶段**只出对比报告，不写飞书**。
+
+**与用法 4 的区别**：
+
+
+|      | 用法 4（IDE）           | 用法 5（CI）                 |
+| ---- | ------------------- | ------------------------ |
+| 触发   | 你在 IDE 里主动说「写回飞书草稿」 | merge 到 `main` 且变更命中协议路径 |
+| 草稿标记 | agent生成，待审查         | CI生成，待审查                 |
+| 生成方式 | Agent 写 DocxXML     | `code_to_docx.py` 确定性生成  |
+
+
+**你怎么做**：
+
+1. 在功能分支改协议代码，开 PR → Actions 跑 **compare**（`mode: pr`），在 Job Summary 看对比报告。
+2. PR 合并到 `main` → Actions 跑 **sync**（`mode: main`）：
+  - 仅变更文件落在某模块 glob 内才处理该模块；
+  - 漏网协议文件（orphan）会警告或失败（可配 `orphan_policy: fail`）；
+  - 对比结果为 **code 领先** 时调用 `POST /jobs/api-doc-sync` 追加草稿；
+  - **doc 领先**（飞书已更新）或 **无协议结构变更** 时跳过写回。
+3. 在飞书搜索 **「CI生成，待审查」**，核对字段后合并进正式章节并去掉标记。
+
+**CI 不会做的事**：不自动改代码、不自动改 `wiki-registry.yaml`、不覆盖已有正式文档段落（只 append 草稿）。`_status: draft` 的模块在 CI 中跳过写回。
+
+实现细节（可复用 Workflow、门禁脚本、ECS 按需 refresh）见下文 [§六](#六github-actions-实现说明)。
+
+---
+
 ## 二、`config/wiki-registry.yaml` 与 glob
 
 中央仓与 **client / server 游戏仓** 各有一份 `config/wiki-registry.yaml`。其中两类配置不要混用：
 
-| 区块 | 作用 | 谁维护 |
-|------|------|--------|
-| `modules` | 飞书叶子文档 `api_docs_obj` / `type_constraints_obj`（快照、写回草稿） | 与 Wiki 结构同步，三处宜一致 |
-| `module_map` | 本仓协议**代码路径** `client_glob` / `server_glob` | **各游戏仓**按实际目录维护 |
+
+| 区块           | 作用                                                      | 谁维护               |
+| ------------ | ------------------------------------------------------- | ----------------- |
+| `modules`    | 飞书叶子文档 `api_docs_obj` / `type_constraints_obj`（快照、写回草稿） | 与 Wiki 结构同步，三处宜一致 |
+| `module_map` | 本仓协议**代码路径** `client_glob` / `server_glob`              | **各游戏仓**按实际目录维护   |
+
 
 ### glob 是什么
 
@@ -119,7 +151,7 @@ module_map:
     server_glob: "**/*room*/**/*.{h,hpp,cpp}"
 ```
 
-项目未完成、路径不准时：**优先用显式路径列表**，不要用宽泛的 `*Battle*`（易扫到 UI、测试代码）。
+项目未完成、路径不准时：**优先用显式路径列表**，不要用宽泛的 `*Battle`*（易扫到 UI、测试代码）。
 
 ### Agent 怎么用 glob（对比 / 对齐）
 
@@ -136,7 +168,7 @@ glob 是**默认范围**，不是唯一依据。Agent 须（详见 `.cursor/skil
 ### 与 ECS 的关系
 
 - **刷新快照 / 写回飞书**：只依赖 `modules.*_obj`，与 glob 无关。
-- **api-compare**：由 Agent 组 `files`；glob 指引 Agent 读哪些文件，CI 不再自动跑 PR Review。
+- **api-compare**：由 Agent 或 CI 组 `files`；支持 `config/message_aliases.yaml` 别名、scoped 过滤、`target` 分流。
 - ECS 上 `/opt/api-sync/config/wiki-registry.yaml` 的 `modules` 需与游戏仓一致；`module_map` 以**各游戏仓**为准。
 
 ### 复制到 client/server 时
@@ -165,7 +197,7 @@ python3 /opt/api-sync/scripts/refresh_all_snapshots.py
 bash /tmp/game-api-sync/deploy/setup-cron.sh
 ```
 
-**若公网 `POST /jobs/*` 只返回 `api-sync ok`：** Nginx 里可能有 `return 200 'api-sync ok'` 占位，需改为反代 uvicorn：
+**若公网 `POST /jobs/`* 只返回 `api-sync ok`：** Nginx 里可能有 `return 200 'api-sync ok'` 占位，需改为反代 uvicorn：
 
 ```bash
 sudo cp /tmp/game-api-sync/deploy/nginx-api-sync.conf /etc/nginx/sites-available/api-sync
@@ -178,7 +210,26 @@ sudo nginx -t && sudo systemctl reload nginx
 
 - **飞书 webhook**（可选）：开放平台 → 事件订阅 → `http://120.27.249.20/webhook/feishu`；文档更新后自动刷新 ECS 快照（无群通知）。
 
-## 五、本仓库结构
+---
+
+## 六、GitHub Actions 实现说明
+
+用法见 [§一·5. 合并到主分支后自动同步飞书文档](#5-合并到主分支后自动同步飞书文档github-actions)。
+
+中央仓提供可复用 Workflow `[.github/workflows/api-doc-sync-reusable.yml](.github/workflows/api-doc-sync-reusable.yml)`；游戏仓 thin workflow 见 [示例](.github/workflows/sync-feishu-api-docs.example.yml)。
+
+
+| 阶段            | 行为                                                                 |
+| ------------- | ------------------------------------------------------------------ |
+| **PR**        | 路径门禁 → 协议指纹 → `api-compare`（scoped）→ Job Summary 报告                |
+| **push main** | 同上；`classify_diff` 为 **code 领先** 时 `code_to_docx` + `api-doc-sync` |
+
+
+脚本入口：`[scripts/ci/run_sync_job.py](scripts/ci/run_sync_job.py)`。CI 侧先用 **TTL（默认 6h）** 决定是否调用 refresh；ECS 收到 refresh 后还会做 **`revision_id` 比对**，未变则跳过全量拉取（响应 `skipped`）。IDE 默认每次对比/对齐前调用 refresh（同样 revision 比对；强制刷新传 `"force":true`）。
+
+相关配置：`[config/message_aliases.yaml](config/message_aliases.yaml)`、`[docs/feishu-doc-write-format.md](docs/feishu-doc-write-format.md)` §4.3（pre 英文类型名）。
+
+## 七、本仓库结构
 
 ```text
 .cursor/rules/api-protocol-baseline.mdc
@@ -189,7 +240,9 @@ sudo nginx -t && sudo systemctl reload nginx
 .junie/guidelines.md
 .junie/game-api-sync/
 config/wiki-registry.yaml
-scripts/（diff_api、extract_code；单测见 tests/）
+config/message_aliases.yaml
+scripts/（diff_api、code_to_docx、ci/；单测见 tests/）
+.github/workflows/api-doc-sync-reusable.yml
 ```
 
 三套 IDE 配置内容对齐：Cursor 用 **Rules + Skills**；VS Code 用 **copilot-instructions + game-api-sync/**；Rider 用 **guidelines + game-api-sync/**。

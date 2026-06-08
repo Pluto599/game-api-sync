@@ -8,6 +8,7 @@ echo "Installing from $SRC to $DEST ..."
 mkdir -p "$DEST"/{config,cache/snapshots,scripts,logs,api}
 
 cp -f "$SRC/config/wiki-registry.yaml" "$DEST/config/wiki-registry.yaml"
+cp -f "$SRC/config/message_aliases.yaml" "$DEST/config/message_aliases.yaml" 
 cp -f "$SRC/scripts/"*.py "$DEST/scripts/"
 cp -f "$SRC/scripts/"*.sh "$DEST/scripts/"
 chmod +x "$DEST/scripts/"*.sh

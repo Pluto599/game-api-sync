@@ -23,7 +23,9 @@ SCRIPTS_DIR = Path(os.environ.get("API_SYNC_SCRIPTS", "/opt/api-sync/scripts"))
 REFRESH_SCRIPT = SCRIPTS_DIR / "refresh_all_snapshots.py"
 
 sys.path.insert(0, str(SCRIPTS_DIR))
-from diff_api import compare_snapshot_to_code  # noqa: E402
+from diff_api import compare_module_all_targets  # noqa: E402
+from compare_targets import scope_type_names_from_code  # noqa: E402
+from extract_code import extract_from_sources  # noqa: E402
 from doc_sync import sync_doc_draft  # noqa: E402
 from registry_globs import load_registry, obj_token_to_modules  # noqa: E402
 from refresh_all_snapshots import refresh_snapshots  # noqa: E402
@@ -31,12 +33,15 @@ from refresh_all_snapshots import refresh_snapshots  # noqa: E402
 
 class RefreshBody(BaseModel):
     module: str | None = None
+    force: bool = False
 
 
 class CompareBody(BaseModel):
     module: str
     repo: str = "client"
     files: dict[str, str]
+    target: str | None = None
+    scoped: bool = True
 
 
 class DocSyncBody(BaseModel):
@@ -59,11 +64,19 @@ def _compare_from_cache(body: CompareBody) -> dict[str, Any]:
     if not body.files:
         raise HTTPException(status_code=400, detail="files must not be empty")
     snapshot = json.loads(path.read_text(encoding="utf-8"))
-    return compare_snapshot_to_code(
+    reg = load_registry(REGISTRY)
+    scope = None
+    if body.scoped:
+        code = extract_from_sources(body.files, repo=body.repo)
+        scope = scope_type_names_from_code(code)
+    return compare_module_all_targets(
         snapshot,
         body.files,
         module=name,
         repo=body.repo,
+        registry_modules=reg.get("modules"),
+        explicit_target=body.target,
+        scope_type_names=scope,
     )
 
 
@@ -130,6 +143,8 @@ def refresh_cache(
     ]
     if body.module:
         cmd.append(body.module.strip())
+    if body.force:
+        cmd.append("--force")
 
     try:
         proc = subprocess.run(
@@ -149,11 +164,19 @@ def refresh_cache(
         )
 
     modules = [line.split()[1] for line in proc.stdout.splitlines() if line.startswith("OK ")]
+    skipped = [
+        line.split()[1].rstrip(":")
+        for line in proc.stdout.splitlines()
+        if line.startswith("SKIP ") and "revision_unchanged" in line
+    ]
     return {
         "ok": True,
         "modules": modules,
+        "skipped": skipped,
         "count": len(modules),
+        "skipped_count": len(skipped),
         "scope": body.module or "all",
+        "force": body.force,
         "log": proc.stdout.strip(),
     }
 
@@ -177,15 +200,24 @@ def api_status(authorization: str | None = Header(None)) -> dict[str, Any]:
     for path in sorted(SNAPSHOT_DIR.glob("*.json")):
         data = json.loads(path.read_text(encoding="utf-8"))
         rev = None
+        parts_meta: dict[str, Any] = {}
         for part in ("api_docs", "type_constraints"):
             block = data.get(part) or {}
             if block.get("revision_id") is not None:
                 rev = block.get("revision_id")
+            parts_meta[part] = {
+                "revision_id": block.get("revision_id"),
+                "fetched_at": block.get("fetched_at"),
+                "struct_count": len(block.get("structs") or []),
+            }
         items.append(
             {
                 "module": path.stem,
                 "cached_at": path.stat().st_mtime,
+                "fetched_at": data.get("fetched_at"),
                 "revision_id": rev,
+                "api_docs": parts_meta.get("api_docs"),
+                "type_constraints": parts_meta.get("type_constraints"),
             }
         )
     return {"ok": True, "modules": items, "count": len(items)}
