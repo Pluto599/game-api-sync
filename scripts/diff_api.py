@@ -11,7 +11,7 @@ from typing import Any
 
 from compare_targets import resolve_compare_targets, scope_type_names_from_code
 from extract_code import extract_from_sources, _normalize_type
-from message_aliases import load_aliases, resolve_code_name
+from message_aliases import load_aliases_for_compare, resolve_code_name
 
 
 def _message_name_from_raw(raw: str) -> str | None:
@@ -258,7 +258,7 @@ def compare_snapshot_to_code(
     aliases: dict[str, dict[str, str]] | None = None,
     registry_modules: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    aliases = aliases if aliases is not None else load_aliases()
+    aliases = aliases if aliases is not None else load_aliases_for_compare(files=files)
     code = extract_from_sources(files, repo=repo)
     if scope_type_names is None:
         scope_type_names = scope_type_names_from_code(code)
@@ -455,6 +455,7 @@ def compare_module_all_targets(
     registry_modules: dict[str, Any] | None = None,
     explicit_target: str | None = None,
     scope_type_names: set[str] | None = None,
+    repo_root: Path | None = None,
 ) -> dict[str, Any]:
     """Run compare for each resolved target; merge reports."""
     targets = resolve_compare_targets(
@@ -462,7 +463,7 @@ def compare_module_all_targets(
     )
     code = extract_from_sources(files, repo=repo)
     scope = scope_type_names if scope_type_names is not None else scope_type_names_from_code(code)
-    aliases = load_aliases()
+    aliases = load_aliases_for_compare(repo_root=repo_root, files=files)
 
     parts: list[dict[str, Any]] = []
     all_defects: list[str] = []
@@ -504,18 +505,21 @@ def compare_module_all_targets(
 def main() -> None:
     if len(sys.argv) < 4:
         print(
-            "Usage: diff_api.py <snapshot.json> <repo> <files.json>",
+            "Usage: diff_api.py <snapshot.json> <repo> <files.json> [repo_root]",
             file=sys.stderr,
         )
         sys.exit(1)
     snap_path = Path(sys.argv[1])
     repo = sys.argv[2]
     files_path = Path(sys.argv[3])
+    repo_root = Path(sys.argv[4]) if len(sys.argv) > 4 else Path.cwd()
     snapshot = json.loads(snap_path.read_text(encoding="utf-8"))
     payload = json.loads(files_path.read_text(encoding="utf-8"))
     module = snapshot.get("module", "unknown")
     files: dict[str, str] = payload.get("files", payload)
-    result = compare_module_all_targets(snapshot, files, module=module, repo=repo)
+    result = compare_module_all_targets(
+        snapshot, files, module=module, repo=repo, repo_root=repo_root
+    )
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 

@@ -44,7 +44,7 @@ description: >-
 1. **`POST /jobs/refresh-cache`**，Body：`{"module":"<模块名>"}`（**仅当前模块**；默认 revision 比对，未变则 `skipped`）
 2. 按 `references/registry-globs.md` 合并 glob、用户指定与必要目录排查，得到最终文件集
 3. 若发现漏网协议文件，先更新 `wiki-registry.yaml` 中 glob（可选，但推荐与对齐流程一致）
-4. `POST /jobs/api-compare`（Body：`module`、`repo`、`files`；可选 `target`、`scoped: true`）
+4. `POST /jobs/api-compare`（Body：`module`、`repo`、`files`；**须含** `config/message_aliases.yaml` 全文；可选 `target`、`scoped: true`）
 5. 展示 `report_md` 与 `defects`（支持 `config/message_aliases.yaml` 别名匹配）；**不改代码**
 
 ### 刷新 ECS 缓存

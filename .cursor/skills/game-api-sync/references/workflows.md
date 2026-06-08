@@ -24,11 +24,16 @@
 {
   "module": "战斗",
   "repo": "client",
-  "files": { "Assets/Scripts/Battle/Foo.cs": "<文件全文>" },
+  "files": {
+    "Assets/Scripts/Battle/Foo.cs": "<文件全文>",
+    "config/message_aliases.yaml": "<游戏仓 alias 文件全文>"
+  },
   "target": null,
   "scoped": true
 }
 ```
+
+- `files` 除协议源文件外，**必须**包含本仓 `config/message_aliases.yaml`（ECS 无游戏仓目录，靠 body 传入别名表）
 
 - `target`：`api_docs` / `type_constraints`；省略时按快照自动分流
 - `scoped`：true 时仅报告 glob 命中文件内的代码类型（忽略跨模块共享头噪声）

@@ -168,7 +168,7 @@ glob 是**默认范围**，不是唯一依据。Agent 须（详见 `.cursor/skil
 ### 与 ECS 的关系
 
 - **刷新快照 / 写回飞书**：只依赖 `modules.*_obj`，与 glob 无关。
-- **api-compare**：由 Agent 或 CI 组 `files`；支持 `config/message_aliases.yaml` 别名、scoped 过滤、`target` 分流。
+- **api-compare**：`files` 须含协议源文件 + **`config/message_aliases.yaml`**（游戏仓 alias；CI/本地优先读 cwd 下该文件，ECS 从 body 嵌入读取）；支持 scoped、`target` 分流。
 - ECS 上 `/opt/api-sync/config/wiki-registry.yaml` 的 `modules` 需与游戏仓一致；`module_map` 以**各游戏仓**为准。
 
 ### 复制到 client/server 时

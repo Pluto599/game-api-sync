@@ -127,6 +127,7 @@ def run_module(
         module=module,
         repo=repo,
         registry_modules=registry.get("modules"),
+        repo_root=repo_root,
     )
     classification = classify_compare_result(compare)
     out: dict[str, Any] = {
