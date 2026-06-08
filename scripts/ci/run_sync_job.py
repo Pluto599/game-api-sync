@@ -143,7 +143,7 @@ def run_module(
     state_path = repo_root / ".api-sync" / "state.json"
     state = read_state(state_path)
     prev = state.get(module) or {}
-    if prev.get("fingerprint") == fp and classification["classification"] == "ok":
+    if prev.get("fingerprint") == fp:
         out["skipped"] = True
         out["reason"] = "fingerprint_unchanged"
         return out
@@ -153,6 +153,7 @@ def run_module(
         out["reason"] = classification["classification"]
         return out
 
+    changed_norm = sorted({p.replace("\\", "/") for p in changed_paths})
     target = infer_doc_sync_target(snapshot, (registry.get("modules") or {}).get(module))
     draft = build_docx_draft(
         snapshot=snapshot,
@@ -160,13 +161,19 @@ def run_module(
         files=files,
         repo=repo,
         target=target,
+        changed_paths=changed_norm,
     )
+    if not draft.strip():
+        out["skipped"] = True
+        out["reason"] = "no_draft_in_changed_files"
+        return out
+
     sync_body = {
         "module": module,
         "repo": repo,
         "target": target,
         "summary": f"CI sync {module} ({classification['classification']})",
-        "files_changed": sorted(files.keys()),
+        "files_changed": changed_norm,
         "docx_draft": draft,
     }
     sync_result = _api("POST", "/jobs/api-doc-sync", sync_body)

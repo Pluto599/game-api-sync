@@ -51,11 +51,23 @@ def snapshot_uses_mode_a(snapshot: dict[str, Any], target: str = "api_docs") -> 
     return False
 
 
+def _norm_path(path: str) -> str:
+    return path.replace("\\", "/")
+
+
+def _in_changed_paths(item: dict[str, Any], changed_paths: set[str] | None) -> bool:
+    if not changed_paths:
+        return True
+    return _norm_path(item.get("file") or "") in changed_paths
+
+
 def _items_to_sync(
     compare_result: dict[str, Any],
     code: dict[str, Any],
+    *,
+    changed_paths: set[str] | None = None,
 ) -> tuple[list[dict], list[dict]]:
-    """Messages/enums that are missing_in_doc or diff with missing_in_doc fields."""
+    """Messages/enums missing_in_doc (or field gap), optionally limited to changed files."""
     sync_msgs: list[dict] = []
     sync_enums: list[dict] = []
     code_msgs = {m["name"]: m for m in code.get("messages", [])}
@@ -72,13 +84,17 @@ def _items_to_sync(
         if r.get("status") == "missing_in_doc":
             name = r.get("message")
             if name and name in code_msgs and name not in seen_msg:
-                sync_msgs.append(code_msgs[name])
-                seen_msg.add(name)
+                msg = code_msgs[name]
+                if _in_changed_paths(msg, changed_paths):
+                    sync_msgs.append(msg)
+                    seen_msg.add(name)
         elif r.get("status") == "diff" and r.get("missing_in_doc"):
             name = r.get("message")
             if name and name in code_msgs and name not in seen_msg:
-                sync_msgs.append(code_msgs[name])
-                seen_msg.add(name)
+                msg = code_msgs[name]
+                if _in_changed_paths(msg, changed_paths):
+                    sync_msgs.append(msg)
+                    seen_msg.add(name)
 
     enum_issues = compare_result.get("enum_issues") or []
     if compare_result.get("parts"):
@@ -91,14 +107,10 @@ def _items_to_sync(
         if ei.get("kind") == "missing_in_doc":
             name = ei.get("enum")
             if name and name in code_enums and name not in seen_en:
-                sync_enums.append(code_enums[name])
-                seen_en.add(name)
-
-    if not sync_msgs and not sync_enums:
-        for msg in code.get("messages", []):
-            sync_msgs.append(msg)
-        for en in code.get("enums", []):
-            sync_enums.append(en)
+                en = code_enums[name]
+                if _in_changed_paths(en, changed_paths):
+                    sync_enums.append(en)
+                    seen_en.add(name)
 
     return sync_msgs, sync_enums
 
@@ -111,9 +123,17 @@ def build_docx_draft(
     repo: str,
     target: str = "api_docs",
     marker: str = CI_MARKER,
+    changed_paths: list[str] | None = None,
 ) -> str:
-    code = extract_from_sources(files, repo=repo)
-    sync_msgs, sync_enums = _items_to_sync(compare_result, code)
+    changed_set = {_norm_path(p) for p in changed_paths} if changed_paths else None
+    if changed_set:
+        draft_files = {k: v for k, v in files.items() if _norm_path(k) in changed_set}
+    else:
+        draft_files = files
+    code = extract_from_sources(draft_files, repo=repo)
+    sync_msgs, sync_enums = _items_to_sync(
+        compare_result, code, changed_paths=changed_set
+    )
     mode_a = snapshot_uses_mode_a(snapshot, target)
     parts: list[str] = []
 
@@ -131,20 +151,11 @@ def build_docx_draft(
                 )
         return "".join(parts)
 
-    if sync_enums and sync_msgs:
-        topic = sync_msgs[0].get("section") or sync_msgs[0]["name"]
+    if sync_enums:
         h = "h2" if mode_a else "h1"
-        parts.append(f"<{h}>{html.escape(str(topic))}{marker}</{h}>")
+        parts.append(f"<{h}>枚举{marker}</{h}>")
         enum_body = "\n".join(_enum_to_pseudo_ts(e) for e in sync_enums)
         parts.append(f'<pre lang="TypeScript"><code>{html.escape(enum_body)}</code></pre>')
-        type_lines = [
-            f"type {m['name']} = {_fields_to_pseudo_ts(m['name'], m.get('fields') or []).split(':', 1)[1].strip()};"
-            for m in sync_msgs
-        ]
-        parts.append(
-            f'<pre lang="TypeScript"><code>{html.escape(chr(10).join(type_lines))}</code></pre>'
-        )
-        return "".join(parts)
 
     for msg in sync_msgs:
         section = msg.get("section") or msg["name"]
@@ -158,12 +169,6 @@ def build_docx_draft(
         parts.append(
             f'<pre lang="TypeScript"{caption}><code>{html.escape(body)}</code></pre>'
         )
-
-    if sync_enums and not sync_msgs:
-        h = "h2" if mode_a else "h1"
-        parts.append(f"<{h}>枚举{marker}</{h}>")
-        enum_body = "\n".join(_enum_to_pseudo_ts(e) for e in sync_enums)
-        parts.append(f'<pre lang="TypeScript"><code>{html.escape(enum_body)}</code></pre>')
 
     return "".join(parts)
 
