@@ -25,7 +25,25 @@
    - **对比**：将最终范围内文件全文放入 `POST /jobs/api-compare` 的 `files`。  
    - **对齐**：只修改最终范围内的**已有**文件；禁止 `Generated/`。
 
-## 更新 glob（用户或 Agent 发现漏网文件时）
+## 对齐流程：Glob 门禁（改代码前必做）
+
+在「根据文档补全/对齐代码」路径中，**先划定待改路径，再检查 glob，再改代码**：
+
+1. 合并得到 **待对齐路径清单**（glob 命中 ∪ 用户 @ ∪ 目录排查补充，去重）。  
+2. **逐路径检查**是否被 `module_map.<模块>.client_glob` / `server_glob` 命中。  
+   - 辅助脚本（在游戏仓根目录，`<中央仓>` 为 game-api-sync 克隆路径）：  
+     `python <中央仓>/scripts/check_glob_for_align.py --module <模块> --repo client|server --paths <路径...> [--user-explicit <用户@的路径...>]`  
+   - JSON 字段：`in_glob`、`missing_from_glob`、`skipped_auto_add`、`suggested_glob`、`needs_registry_update`。  
+3. 对 `missing_from_glob` 中**协议源文件**（`.cs/.h/.cpp` 等且含消息 struct 或 enum，或用户 @ 指定）：  
+   - **自动更新**本仓 `config/wiki-registry.yaml`，将 `suggested_glob` 写回对应 `client_glob` / `server_glob`（显式路径列表优先）。  
+4. **勿自动加入 glob**（除非用户 @ 明确指定）：  
+   - 资源/场景：`.prefab`、`.unity`、`.asset`、图片、音频、字体等；  
+   - 目录：`Resources/`、`StreamingAssets/`、`Editor/`、`Tests/`、`Generated/`；  
+   - 纯 UI/视图层：路径含 `ViewModel`、`/Views/`、`/Dialogs/`、独立 `*State.cs`（无协议 struct）。  
+5. **提醒用户核对**：列出本次新增 glob 路径、`skipped_auto_add` 及原因；**用户确认或修正 registry 后再继续改代码**。  
+6. 若 ECS 也部署中央 `wiki-registry.yaml`，提醒管理员同步 server/client 两份。
+
+## 更新 glob（对比 / 写回时同样适用）
 
 当用户通过 **@文件**、**/agent**、或对话指明「这些也是本模块协议文件」，且它们**不在当前 glob 结果中**时，Agent **应自行更新**本仓库 `config/wiki-registry.yaml`（同一 PR / 同一会话内完成，勿只改代码不更新 registry）：
 
@@ -35,7 +53,7 @@
 4. 向用户简短说明 registry 变更（新增/删除了哪些路径模式）。  
 5. 若 ECS 也部署了中央 `wiki-registry.yaml`，提醒管理员同步 server/client 两份及 ECS 上 `module_map`（飞书 `modules` token 无需因路径而改）。
 
-**勿**把与模块无关的文件写入 glob（UI、Editor、测试、工具脚本等）。
+**勿**把与模块无关的文件写入 glob（UI、Editor、测试、工具脚本、资源文件等）。
 
 ## 与 `_status` 的配合（若 YAML 中有标注）
 
