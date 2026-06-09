@@ -81,16 +81,16 @@ ECS 写入飞书正文（模式 A 插入 **h1 客户端/服务端** 分区末尾
 
 ---
 
-### 5. 合并到主分支后自动同步飞书文档（GitHub Actions）
+### 5. PR 合并后自动同步飞书文档（GitHub Actions）
 
-**场景**：协议代码合并进 **client / server** 仓库的 `main` 后，由 CI 自动对比飞书快照与代码；仅在**代码领先于文档**时，把变更写成飞书正文草稿（标题含 **CI生成，待审查**），供负责人审阅合并。PR 阶段**只出对比报告，不写飞书**。
+**场景**：协议 PR **合并到任意目标分支**后，由 CI 自动对比飞书快照与 PR 变更的协议代码；仅在**代码领先于文档**时，把变更写成飞书正文草稿（标题含 **CI生成，待审查**），供负责人审阅合并。PR 打开/更新阶段**不跑 Actions**；对比请在 IDE 主动发起。
 
 **与用法 4 的区别**：
 
 
 |      | 用法 4（IDE）           | 用法 5（CI）                 |
 | ---- | ------------------- | ------------------------ |
-| 触发   | 你在 IDE 里主动说「写回飞书草稿」 | merge 到 `main` 且变更命中协议路径 |
+| 触发   | 你在 IDE 里主动说「写回飞书草稿」 | PR **合并**且变更命中协议路径 |
 | 草稿标记 | agent生成，待审查         | CI生成，待审查                 |
 | 生成方式 | Agent 写 DocxXML     | `code_to_docx.py` 确定性生成  |
 
@@ -98,7 +98,7 @@ ECS 写入飞书正文（模式 A 插入 **h1 客户端/服务端** 分区末尾
 **你怎么做**：
 
 1. 在功能分支改协议代码，开 PR（**CI 不再跑 compare、不出对比报告**；对比请在 IDE 主动发起）。
-2. PR **合并到 `main`** → Actions 跑 **sync**：
+2. PR **合并**（目标分支任意）→ Actions 跑 **sync**：
   - 仅 PR 中变更且落在某模块 glob 内的协议文件才处理；
   - 漏网协议文件（orphan）会警告或失败（可配 `orphan_policy: fail`）；
   - 对比结果为 **code 领先** 时调用 `POST /jobs/api-doc-sync` 追加草稿；
@@ -222,7 +222,7 @@ sudo nginx -t && sudo systemctl reload nginx
 | 阶段 | 行为 |
 | ------------- | ------------------------------------------------------------------ |
 | **PR 打开/更新** | 不触发 Actions（对比请在 IDE 主动发起） |
-| **PR 合并到 main** | 路径门禁 → 仅 PR 变更的协议文件 → `classify_diff` 为 **code 领先** 时 `code_to_docx` + `api-doc-sync` |
+| **PR 合并** | 路径门禁 → 仅 PR 变更的协议文件 → `classify_diff` 为 **code 领先** 时 `code_to_docx` + `api-doc-sync` |
 
 
 脚本入口：`[scripts/ci/run_sync_job.py](scripts/ci/run_sync_job.py)`。CI 侧先用 **TTL（默认 6h）** 决定是否调用 refresh；ECS 收到 refresh 后还会做 **`revision_id` 比对**，未变则跳过全量拉取（响应 `skipped`）。IDE 默认每次对比/对齐前调用 refresh（同样 revision 比对；强制刷新传 `"force":true`）。

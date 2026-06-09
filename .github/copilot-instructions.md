@@ -32,7 +32,7 @@ $h = @{ Authorization = "Bearer $env:API_SYNC_TOKEN" }
 | 刷新缓存 | 对齐/对比/写回前先 `POST /jobs/refresh-cache` **当前模块**（默认 revision 比对；`"force":true` 强制全量）；全量所有模块仅当用户明确要求 |
 | 对比   | refresh → [registry-globs.md](.github/game-api-sync/registry-globs.md) 确定 `files`（**含** `config/message_aliases.yaml`）→ `POST /jobs/api-compare`；**不改代码**（IDE 主动；Actions 不跑 compare） |
 | 对齐   | 取 snapshot → 合并 glob、用户 @ 路径与目录排查 → **Glob 门禁** → 只改范围内已有文件；**禁止** `Generated/`；用户自行 commit |
-| 写回飞书（CI） | PR **合并到 main** 时 sync；仅 PR 变更协议文件；Job Summary 为 sync 状态（无对比报告） |
+| 写回飞书（CI） | PR **合并**时 sync（任意目标分支）；仅 PR 变更协议文件；Job Summary 为 sync 状态（无对比报告） |
 | 写回飞书（IDE） | 模式 A：**h2**、**无 caption**、pre×2、**无【合并位置】**、无实例；ECS 插入 h1 客户端/服务端 分区末；见 [doc-write-format.md](.github/game-api-sync/doc-write-format.md) |
 
 

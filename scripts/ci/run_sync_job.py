@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Orchestrate CI api-doc sync when a PR merges to main."""
+"""Orchestrate CI api-doc sync when a PR merges (any target branch)."""
 
 from __future__ import annotations
 

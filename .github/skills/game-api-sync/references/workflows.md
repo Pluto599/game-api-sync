@@ -6,7 +6,7 @@
 | 对比 | IDE 主动，只读 | `POST /jobs/api-compare` |
 | 对齐代码 | IDE 主动 | refresh → `GET /api/snapshot` + 改现有文件 |
 | 写回文档 | IDE 主动 / CI PR 合并 | `POST /jobs/api-doc-sync` |
-| CI 自动 | PR **合并到 main** 时 | `scripts/ci/run_sync_job.py`（仅 sync，无 compare 报告） |
+| CI 自动 | PR **合并**时（任意目标分支） | `scripts/ci/run_sync_job.py`（仅 sync，无 compare 报告） |
 
 ## refresh-cache Body
 
