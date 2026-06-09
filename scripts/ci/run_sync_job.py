@@ -134,8 +134,9 @@ def run_module(
         "module": module,
         "fingerprint": fp,
         "classification": classification,
-        "report_md": compare.get("report_md", ""),
     }
+    if mode == "pr":
+        out["report_md"] = compare.get("report_md", "")
 
     if mode == "pr":
         return out
@@ -185,6 +186,54 @@ def run_module(
     }
     write_state(state_path, state)
     return out
+
+
+def _format_sync_module_summary(r: dict[str, Any]) -> list[str]:
+    """Concise per-module lines for main (sync) mode — no compare report body."""
+    lines: list[str] = []
+    cls = r.get("classification") or {}
+    label = cls.get("classification", "?")
+    lines.append(f"- **classification**: `{label}`")
+    if r.get("skipped"):
+        lines.append(f"- **skipped**: `{r.get('reason', 'unknown')}`")
+    elif r.get("sync"):
+        sync = r["sync"]
+        ok = sync.get("ok", sync.get("success"))
+        lines.append(f"- **sync**: {'ok' if ok else 'failed'}")
+        if sync.get("message"):
+            lines.append(f"- **message**: {sync['message']}")
+    if r.get("error"):
+        lines.append(f"- **error**: {r['error']}")
+    return lines
+
+
+def _write_step_summary(
+    *,
+    mode: str,
+    results: list[dict[str, Any]],
+    orphans: list[str],
+    summary_path: str,
+) -> None:
+    lines = [f"# API Sync ({mode})", ""]
+    if orphans:
+        lines.append("## Orphans\n")
+        for o in orphans:
+            lines.append(f"- `{o}`")
+        lines.append("")
+    for r in results:
+        lines.append(f"## {r.get('module', '?')}\n")
+        if mode == "pr":
+            if r.get("report_md"):
+                lines.append(r["report_md"])
+            if r.get("skipped"):
+                lines.append(f"\n_skipped: {r.get('reason')}_\n")
+            if r.get("error"):
+                lines.append(f"\n**error**: {r['error']}\n")
+        else:
+            lines.extend(_format_sync_module_summary(r))
+            lines.append("")
+        lines.append("")
+    Path(summary_path).write_text("\n".join(lines), encoding="utf-8")
 
 
 def main() -> None:
@@ -240,22 +289,12 @@ def main() -> None:
     }
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY", "")
     if summary_path:
-        lines = [f"# API Sync ({args.mode})", ""]
-        if orphans:
-            lines.append("## Orphans\n")
-            for o in orphans:
-                lines.append(f"- `{o}`")
-            lines.append("")
-        for r in results:
-            lines.append(f"## {r.get('module', '?')}\n")
-            if r.get("report_md"):
-                lines.append(r["report_md"])
-            if r.get("skipped"):
-                lines.append(f"\n_skipped: {r.get('reason')}_\n")
-            if r.get("error"):
-                lines.append(f"\n**error**: {r['error']}\n")
-            lines.append("")
-        Path(summary_path).write_text("\n".join(lines), encoding="utf-8")
+        _write_step_summary(
+            mode=args.mode,
+            results=results,
+            orphans=orphans,
+            summary_path=summary_path,
+        )
     print(json.dumps(summary, ensure_ascii=False, indent=2))
 
 
