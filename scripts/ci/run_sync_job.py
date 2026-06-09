@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Orchestrate CI api-doc sync: compare on PR, conditional write on main push."""
+"""Orchestrate CI api-doc sync when a PR merges to main."""
 
 from __future__ import annotations
 
@@ -19,7 +19,6 @@ sys.path.insert(0, str(SCRIPT_DIR))
 from classify_diff import classify_compare_result  # noqa: E402
 from code_to_docx import build_docx_draft, infer_doc_sync_target  # noqa: E402
 from diff_api import compare_module_all_targets  # noqa: E402
-from registry_globs import collect_module_files  # noqa: E402
 
 from ci.gate import (  # noqa: E402
     discover_orphans,
@@ -77,26 +76,12 @@ def fetch_snapshot(module: str) -> dict[str, Any]:
     return r.get("snapshot") or r
 
 
-def collect_files_for_module(
+def collect_changed_protocol_files(
     repo_root: Path,
-    registry: dict[str, Any],
-    module: str,
-    repo: str,
-    extra_paths: list[str] | None = None,
-    *,
-    only_paths: list[str] | None = None,
+    paths: list[str],
 ) -> dict[str, str]:
-    """Collect protocol sources. only_paths = restrict to explicit list (sync); else full module glob."""
-    if only_paths:
-        files: dict[str, str] = {}
-        for p in only_paths:
-            full = repo_root / p
-            if full.is_file():
-                rel = full.relative_to(repo_root).as_posix()
-                files[rel] = full.read_text(encoding="utf-8", errors="replace")
-        return files
-    files = collect_module_files(repo_root, registry, module, repo)
-    for p in extra_paths or []:
+    files: dict[str, str] = {}
+    for p in paths:
         full = repo_root / p
         if full.is_file():
             rel = full.relative_to(repo_root).as_posix()
@@ -106,7 +91,6 @@ def collect_files_for_module(
 
 def run_module(
     *,
-    mode: str,
     module: str,
     repo: str,
     registry_path: Path,
@@ -124,18 +108,15 @@ def run_module(
     if status == "draft":
         return {"module": module, "skipped": True, "reason": "module_status_draft"}
 
+    changed_norm = sorted({p.replace("\\", "/") for p in changed_paths})
+    if not changed_norm:
+        return {"module": module, "skipped": True, "reason": "no_protocol_files_in_commit"}
+
     if force_refresh or needs_refresh(module, ttl_hours):
         refresh_module(module)
 
     snapshot = fetch_snapshot(module)
-    if mode == "main":
-        files = collect_files_for_module(
-            repo_root, registry, module, repo, only_paths=changed_paths
-        )
-    else:
-        files = collect_files_for_module(
-            repo_root, registry, module, repo, extra_paths=changed_paths
-        )
+    files = collect_changed_protocol_files(repo_root, changed_norm)
     fp = protocol_fingerprint(files, repo)
     compare = compare_module_all_targets(
         snapshot,
@@ -151,17 +132,6 @@ def run_module(
         "fingerprint": fp,
         "classification": classification,
     }
-    if mode == "pr":
-        out["report_md"] = compare.get("report_md", "")
-
-    if mode == "pr":
-        return out
-
-    changed_norm = sorted({p.replace("\\", "/") for p in changed_paths})
-    if not changed_norm:
-        out["skipped"] = True
-        out["reason"] = "no_protocol_files_in_commit"
-        return out
 
     state_path = repo_root / ".api-sync" / "state.json"
     state = read_state(state_path)
@@ -209,8 +179,7 @@ def run_module(
     return out
 
 
-def _format_sync_module_summary(r: dict[str, Any]) -> list[str]:
-    """Concise per-module lines for main (sync) mode — no compare report body."""
+def _format_module_summary(r: dict[str, Any]) -> list[str]:
     lines: list[str] = []
     cls = r.get("classification") or {}
     label = cls.get("classification", "?")
@@ -230,12 +199,11 @@ def _format_sync_module_summary(r: dict[str, Any]) -> list[str]:
 
 def _write_step_summary(
     *,
-    mode: str,
     results: list[dict[str, Any]],
     orphans: list[str],
     summary_path: str,
 ) -> None:
-    lines = [f"# API Sync ({mode})", ""]
+    lines = ["# API Doc Sync (PR merged)", ""]
     if orphans:
         lines.append("## Orphans\n")
         for o in orphans:
@@ -243,25 +211,15 @@ def _write_step_summary(
         lines.append("")
     for r in results:
         lines.append(f"## {r.get('module', '?')}\n")
-        if mode == "pr":
-            if r.get("report_md"):
-                lines.append(r["report_md"])
-            if r.get("skipped"):
-                lines.append(f"\n_skipped: {r.get('reason')}_\n")
-            if r.get("error"):
-                lines.append(f"\n**error**: {r['error']}\n")
-        else:
-            lines.extend(_format_sync_module_summary(r))
-            lines.append("")
+        lines.extend(_format_module_summary(r))
         lines.append("")
     Path(summary_path).write_text("\n".join(lines), encoding="utf-8")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="CI api-doc sync job")
-    parser.add_argument("--mode", choices=("pr", "main"), required=True)
+    parser = argparse.ArgumentParser(description="CI api-doc sync on PR merge")
     parser.add_argument("--repo", choices=("client", "server"), required=True)
-    parser.add_argument("--base-ref", default=os.environ.get("GITHUB_BASE_REF", "main"))
+    parser.add_argument("--base-ref", required=True, help="PR base SHA for git diff")
     parser.add_argument("--registry", default="config/wiki-registry.yaml")
     parser.add_argument("--ttl-hours", type=float, default=6.0)
     parser.add_argument("--force-refresh", action="store_true")
@@ -289,7 +247,6 @@ def main() -> None:
     for module in sorted(modules_map.keys()):
         try:
             r = run_module(
-                mode=args.mode,
                 module=module,
                 repo=args.repo,
                 registry_path=registry_path,
@@ -304,14 +261,12 @@ def main() -> None:
 
     summary = {
         "ok": True,
-        "mode": args.mode,
         "modules": results,
         "orphans": orphans,
     }
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY", "")
     if summary_path:
         _write_step_summary(
-            mode=args.mode,
             results=results,
             orphans=orphans,
             summary_path=summary_path,

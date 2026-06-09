@@ -5,8 +5,8 @@
 | 刷新缓存 | IDE 主动（对齐/对比/写回前先调，当前模块；**默认 revision 比对**） | `POST /jobs/refresh-cache` |
 | 对比 | IDE 主动，只读 | `POST /jobs/api-compare` |
 | 对齐代码 | IDE 主动 | refresh → `GET /api/snapshot` + 改现有文件 |
-| 写回文档 | IDE 主动 / CI main | `POST /jobs/api-doc-sync` |
-| CI 自动 | GitHub Actions PR/main | `scripts/ci/run_sync_job.py`（TTL 过期后 refresh，ECS 侧仍做 revision 比对） |
+| 写回文档 | IDE 主动 / CI PR 合并 | `POST /jobs/api-doc-sync` |
+| CI 自动 | PR **合并到 main** 时 | `scripts/ci/run_sync_job.py`（仅 sync，无 compare 报告） |
 
 ## refresh-cache Body
 

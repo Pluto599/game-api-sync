@@ -97,9 +97,9 @@ ECS 写入飞书正文（模式 A 插入 **h1 客户端/服务端** 分区末尾
 
 **你怎么做**：
 
-1. 在功能分支改协议代码，开 PR → Actions 跑 **compare**（`mode: pr`），在 Job Summary 看对比报告。
-2. PR 合并到 `main` → Actions 跑 **sync**（`mode: main`）：
-  - 仅变更文件落在某模块 glob 内才处理该模块；
+1. 在功能分支改协议代码，开 PR（**CI 不再跑 compare、不出对比报告**；对比请在 IDE 主动发起）。
+2. PR **合并到 `main`** → Actions 跑 **sync**：
+  - 仅 PR 中变更且落在某模块 glob 内的协议文件才处理；
   - 漏网协议文件（orphan）会警告或失败（可配 `orphan_policy: fail`）；
   - 对比结果为 **code 领先** 时调用 `POST /jobs/api-doc-sync` 追加草稿；
   - **doc 领先**（飞书已更新）或 **无协议结构变更** 时跳过写回。
@@ -216,13 +216,13 @@ sudo nginx -t && sudo systemctl reload nginx
 
 用法见 [§一·5. 合并到主分支后自动同步飞书文档](#5-合并到主分支后自动同步飞书文档github-actions)。
 
-中央仓提供可复用 Workflow `[.github/workflows/api-doc-sync-reusable.yml](.github/workflows/api-doc-sync-reusable.yml)`；游戏仓 thin workflow 见 [示例](.github/workflows/sync-feishu-api-docs.example.yml)。
+中央仓提供可复用 Workflow `[.github/workflows/api-doc-sync-reusable.yml](.github/workflows/api-doc-sync-reusable.yml)`；游戏仓 thin workflow 见 [client 示例](.github/workflows/sync-feishu-api-docs.client.yml) / [server 示例](.github/workflows/sync-feishu-api-docs.server.yml)。
 
 
-| 阶段            | 行为                                                                 |
+| 阶段 | 行为 |
 | ------------- | ------------------------------------------------------------------ |
-| **PR**        | 路径门禁 → 协议指纹 → `api-compare`（scoped）→ Job Summary 报告                |
-| **push main** | 同上；`classify_diff` 为 **code 领先** 时 `code_to_docx` + `api-doc-sync` |
+| **PR 打开/更新** | 不触发 Actions（对比请在 IDE 主动发起） |
+| **PR 合并到 main** | 路径门禁 → 仅 PR 变更的协议文件 → `classify_diff` 为 **code 领先** 时 `code_to_docx` + `api-doc-sync` |
 
 
 脚本入口：`[scripts/ci/run_sync_job.py](scripts/ci/run_sync_job.py)`。CI 侧先用 **TTL（默认 6h）** 决定是否调用 refresh；ECS 收到 refresh 后还会做 **`revision_id` 比对**，未变则跳过全量拉取（响应 `skipped`）。IDE 默认每次对比/对齐前调用 refresh（同样 revision 比对；强制刷新传 `"force":true`）。

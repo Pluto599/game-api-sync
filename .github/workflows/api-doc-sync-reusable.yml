@@ -7,15 +7,14 @@ on:
         description: client or server
         required: true
         type: string
-      mode:
-        description: pr (report only) or main (conditional sync)
+      base_ref:
+        description: PR base commit SHA (pre-merge main) for git diff
         required: true
         type: string
-      base_ref:
-        description: git base ref for diff
-        required: false
+      merge_commit_sha:
+        description: merge commit SHA on main after PR merged
+        required: true
         type: string
-        default: main
       snapshot_ttl_hours:
         description: ECS snapshot TTL before refresh
         required: false
@@ -36,6 +35,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.merge_commit_sha }}
           fetch-depth: 0
 
       - name: Set up Python
@@ -59,7 +59,6 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/_api-sync/scripts
         run: |
           python _api-sync/scripts/ci/run_sync_job.py \
-            --mode "${{ inputs.mode }}" \
             --repo "${{ inputs.game_repo }}" \
             --base-ref "${{ inputs.base_ref }}" \
             --ttl-hours "${{ inputs.snapshot_ttl_hours }}" \
