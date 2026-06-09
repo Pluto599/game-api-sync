@@ -85,6 +85,31 @@ public class ShopState {
         self.assertIn("ShopCatalogItem", xml)
         self.assertNotIn("ShopState", xml)
 
+    def test_empty_changed_paths_syncs_nothing(self) -> None:
+        snap = {"module": "商店", "api_docs": {"structs": []}}
+        draft = "public struct ShopCatalogItem { public string itemId; }"
+        files = {"Assets/Network/ShopProtocolDraft.cs": draft}
+        code = extract_from_sources(files, repo="client")
+        compare_result = {
+            "message_results": [
+                {"status": "missing_in_doc", "message": m["name"]}
+                for m in code["messages"]
+            ],
+            "enum_issues": [],
+        }
+        msgs, _ = _items_to_sync(
+            compare_result, code, changed_paths=set()
+        )
+        self.assertEqual(msgs, [])
+        xml = build_docx_draft(
+            snapshot=snap,
+            compare_result=compare_result,
+            files=files,
+            repo="client",
+            changed_paths=[],
+        )
+        self.assertEqual(xml, "")
+
 
 if __name__ == "__main__":
     unittest.main()

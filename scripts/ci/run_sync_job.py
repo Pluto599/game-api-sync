@@ -83,7 +83,18 @@ def collect_files_for_module(
     module: str,
     repo: str,
     extra_paths: list[str] | None = None,
+    *,
+    only_paths: list[str] | None = None,
 ) -> dict[str, str]:
+    """Collect protocol sources. only_paths = restrict to explicit list (sync); else full module glob."""
+    if only_paths:
+        files: dict[str, str] = {}
+        for p in only_paths:
+            full = repo_root / p
+            if full.is_file():
+                rel = full.relative_to(repo_root).as_posix()
+                files[rel] = full.read_text(encoding="utf-8", errors="replace")
+        return files
     files = collect_module_files(repo_root, registry, module, repo)
     for p in extra_paths or []:
         full = repo_root / p
@@ -117,9 +128,14 @@ def run_module(
         refresh_module(module)
 
     snapshot = fetch_snapshot(module)
-    files = collect_files_for_module(
-        repo_root, registry, module, repo, extra_paths=changed_paths
-    )
+    if mode == "main":
+        files = collect_files_for_module(
+            repo_root, registry, module, repo, only_paths=changed_paths
+        )
+    else:
+        files = collect_files_for_module(
+            repo_root, registry, module, repo, extra_paths=changed_paths
+        )
     fp = protocol_fingerprint(files, repo)
     compare = compare_module_all_targets(
         snapshot,
@@ -141,6 +157,12 @@ def run_module(
     if mode == "pr":
         return out
 
+    changed_norm = sorted({p.replace("\\", "/") for p in changed_paths})
+    if not changed_norm:
+        out["skipped"] = True
+        out["reason"] = "no_protocol_files_in_commit"
+        return out
+
     state_path = repo_root / ".api-sync" / "state.json"
     state = read_state(state_path)
     prev = state.get(module) or {}
@@ -154,7 +176,6 @@ def run_module(
         out["reason"] = classification["classification"]
         return out
 
-    changed_norm = sorted({p.replace("\\", "/") for p in changed_paths})
     target = infer_doc_sync_target(snapshot, (registry.get("modules") or {}).get(module))
     draft = build_docx_draft(
         snapshot=snapshot,

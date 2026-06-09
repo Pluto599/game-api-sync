@@ -81,11 +81,6 @@ def resolve_modules_for_paths(
     module_map = registry.get("module_map") or {}
     result: dict[str, list[str]] = {}
 
-    if "config/wiki-registry.yaml" in changed:
-        for mod in module_map:
-            result.setdefault(mod, [])
-        return result
-
     repo_root = Path.cwd()
     for path in changed:
         for mod, info in module_map.items():

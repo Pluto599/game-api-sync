@@ -56,8 +56,10 @@ def _norm_path(path: str) -> str:
 
 
 def _in_changed_paths(item: dict[str, Any], changed_paths: set[str] | None) -> bool:
-    if not changed_paths:
+    if changed_paths is None:
         return True
+    if not changed_paths:
+        return False
     return _norm_path(item.get("file") or "") in changed_paths
 
 
@@ -125,11 +127,14 @@ def build_docx_draft(
     marker: str = CI_MARKER,
     changed_paths: list[str] | None = None,
 ) -> str:
-    changed_set = {_norm_path(p) for p in changed_paths} if changed_paths else None
-    if changed_set:
-        draft_files = {k: v for k, v in files.items() if _norm_path(k) in changed_set}
-    else:
+    if changed_paths is None:
+        changed_set = None
         draft_files = files
+    else:
+        changed_set = {_norm_path(p) for p in changed_paths}
+        draft_files = {
+            k: v for k, v in files.items() if _norm_path(k) in changed_set
+        }
     code = extract_from_sources(draft_files, repo=repo)
     sync_msgs, sync_enums = _items_to_sync(
         compare_result, code, changed_paths=changed_set

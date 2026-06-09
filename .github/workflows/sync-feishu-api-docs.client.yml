@@ -1,5 +1,6 @@
 # 复制到 client 游戏仓：.github/workflows/sync-feishu-api-docs.yml
 # 前置：Settings → Secrets → Actions 配置 API_SYNC_TOKEN
+# push 仅 main：功能分支 push 只跑 compare（PR），避免误写飞书
 
 name: Sync Feishu API Docs (client)
 
@@ -10,6 +11,8 @@ on:
       - 'config/wiki-registry.yaml'
       - 'config/message_aliases.yaml'
   push:
+    branches:
+      - main
     paths:
       - 'Assets/Scripts/**'
       - 'config/wiki-registry.yaml'
