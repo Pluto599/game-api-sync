@@ -277,8 +277,13 @@ def compare_snapshot_to_code(
     scope_type_names: set[str] | None = None,
     aliases: dict[str, dict[str, str]] | None = None,
     registry_modules: dict[str, Any] | None = None,
+    repo_root: Path | None = None,
 ) -> dict[str, Any]:
-    aliases = aliases if aliases is not None else load_aliases_for_compare(files=files)
+    aliases = (
+        aliases
+        if aliases is not None
+        else load_aliases_for_compare(repo_root=repo_root, files=files)
+    )
     code = extract_from_sources(files, repo=repo)
     if scope_type_names is None:
         scope_type_names = scope_type_names_from_code(code)

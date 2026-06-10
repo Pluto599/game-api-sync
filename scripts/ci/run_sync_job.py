@@ -19,6 +19,7 @@ sys.path.insert(0, str(SCRIPT_DIR))
 from classify_diff import classify_compare_result  # noqa: E402
 from code_to_docx import build_docx_draft, sync_targets_for_module  # noqa: E402
 from diff_api import compare_snapshot_to_code  # noqa: E402
+from message_aliases import ALIASES_REL  # noqa: E402
 
 from ci.gate import (  # noqa: E402
     discover_orphans,
@@ -86,6 +87,9 @@ def collect_changed_protocol_files(
         if full.is_file():
             rel = full.relative_to(repo_root).as_posix()
             files[rel] = full.read_text(encoding="utf-8", errors="replace")
+    aliases = repo_root / ALIASES_REL
+    if aliases.is_file() and ALIASES_REL not in files:
+        files[ALIASES_REL] = aliases.read_text(encoding="utf-8", errors="replace")
     return files
 
 

@@ -65,19 +65,20 @@
 1. 在 **client** 或 **server** 当前分支完成代码修改。
 2. 在 IDE 中说：
   > 根据当前代码变更，生成飞书文档更新草稿
-3. Agent 调用 ECS：`POST /jobs/api-doc-sync`，Body 示例：
+3. Agent 在游戏仓根目录运行中央仓 CLI（与 CI 同一套分流规则）：
 
-```json
-{
-  "module": "战斗",
-  "repo": "client",
-  "summary": "变更说明",
-  "files_changed": ["Assets/Scripts/Battle/Foo.cs"],
-  "docx_draft": "<h1>进入战斗（agent生成，待审查）</h1><pre>...</pre>"
-}
+```powershell
+python <中央仓>/scripts/agent_doc_draft.py `
+  --module 战斗 --repo client `
+  --paths Assets/Scripts/Battle/Foo.cs `
+  --apply-glob
 ```
 
-ECS 写入飞书正文（模式 A 插入 **h1 客户端/服务端** 分区末尾；否则 append 文末）；自动剔除【合并位置】段。负责人按 `docs/feishu-doc-write-format.md` 审阅。
+   - `--git-since origin/main` 可代替 `--paths` 自动取变更文件。
+   - `--apply-glob` 自动补齐 `wiki-registry.yaml` 中漏网路径；**须核对 git diff**。
+   - 输出 JSON 含 `drafts[].api_doc_sync_body`；Agent 再 `POST /jobs/api-doc-sync`（或加 `--sync`）。
+
+ECS 写入飞书正文（模式 A 插入 **h1 客户端/服务端** 分区末尾）；负责人按 `docs/feishu-doc-write-format.md` 审阅。
 
 ---
 
@@ -88,11 +89,11 @@ ECS 写入飞书正文（模式 A 插入 **h1 客户端/服务端** 分区末尾
 **与用法 4 的区别**：
 
 
-|      | 用法 4（IDE）           | 用法 5（CI）                 |
-| ---- | ------------------- | ------------------------ |
-| 触发   | 你在 IDE 里主动说「写回飞书草稿」 | PR **合并**且变更命中协议路径 |
-| 草稿标记 | agent生成，待审查         | CI生成，待审查                 |
-| 生成方式 | Agent 写 DocxXML     | `code_to_docx.py` 确定性生成  |
+|      | 用法 4（IDE）           | 用法 5（CI）                |
+| ---- | ------------------- | ----------------------- |
+| 触发   | 你在 IDE 里主动说「写回飞书草稿」 | PR **合并**且变更命中协议路径      |
+| 草稿标记 | agent生成，待审查         | CI生成，待审查                |
+| 生成方式 | `agent_doc_draft.py` + `code_to_docx`（与 CI 同源） | `code_to_docx.py` 确定性生成 |
 
 
 **你怎么做**：
@@ -168,7 +169,7 @@ glob 是**默认范围**，不是唯一依据。Agent 须（详见 `.cursor/skil
 ### 与 ECS 的关系
 
 - **刷新快照 / 写回飞书**：只依赖 `modules.*_obj`，与 glob 无关。
-- **api-compare**：`files` 须含协议源文件 + **`config/message_aliases.yaml`**（游戏仓 alias；CI/本地优先读 cwd 下该文件，ECS 从 body 嵌入读取）；支持 scoped、`target` 分流。
+- **api-compare**：`files` 须含协议源文件 + `**config/message_aliases.yaml`**（游戏仓 alias；CI/本地优先读 cwd 下该文件，ECS 从 body 嵌入读取）；支持 scoped、`target` 分流。
 - ECS 上 `/opt/api-sync/config/wiki-registry.yaml` 的 `modules` 需与游戏仓一致；`module_map` 以**各游戏仓**为准。
 
 ### 复制到 client/server 时
@@ -189,7 +190,14 @@ glob 是**默认范围**，不是唯一依据。Agent 须（详见 `.cursor/skil
 
 ```bash
 cd /tmp && rm -rf game-api-sync
+
+# 采用 git clone 方式同步仓库
 git clone https://github.com/Pluto599/game-api-sync.git
+# 采用 Workbench 方式传输文件
+unzip -o game-api-sync.zip -d /tmp
+rm -rf game-api-sync.zip
+
+# 启动服务
 bash /tmp/game-api-sync/deploy/install-to-ecs.sh /tmp/game-api-sync
 lark-cli auth login --recommend
 pip3 install -q pyyaml
@@ -197,7 +205,7 @@ python3 /opt/api-sync/scripts/refresh_all_snapshots.py
 bash /tmp/game-api-sync/deploy/setup-cron.sh
 ```
 
-**若公网 `POST /jobs/`* 只返回 `api-sync ok`：** Nginx 里可能有 `return 200 'api-sync ok'` 占位，需改为反代 uvicorn：
+*若公网 `POST /jobs/` 只返回 `api-sync ok`：** Nginx 里可能有 `return 200 'api-sync ok'` 占位，需改为反代 uvicorn：
 
 ```bash
 sudo cp /tmp/game-api-sync/deploy/nginx-api-sync.conf /etc/nginx/sites-available/api-sync
@@ -219,13 +227,13 @@ sudo nginx -t && sudo systemctl reload nginx
 中央仓提供可复用 Workflow `[.github/workflows/api-doc-sync-reusable.yml](.github/workflows/api-doc-sync-reusable.yml)`；游戏仓 thin workflow 见 [client 示例](.github/workflows/sync-feishu-api-docs.client.yml) / [server 示例](.github/workflows/sync-feishu-api-docs.server.yml)。
 
 
-| 阶段 | 行为 |
-| ------------- | ------------------------------------------------------------------ |
-| **PR 打开/更新** | 不触发 Actions（对比请在 IDE 主动发起） |
-| **PR 合并** | 路径门禁 → 仅 PR 变更的协议文件 → `classify_diff` 为 **code 领先** 时 `code_to_docx` + `api-doc-sync` |
+| 阶段           | 行为                                                                                    |
+| ------------ | ------------------------------------------------------------------------------------- |
+| **PR 打开/更新** | 不触发 Actions（对比请在 IDE 主动发起）                                                            |
+| **PR 合并**    | 路径门禁 → 仅 PR 变更的协议文件 → `classify_diff` 为 **code 领先** 时 `code_to_docx` + `api-doc-sync` |
 
 
-脚本入口：`[scripts/ci/run_sync_job.py](scripts/ci/run_sync_job.py)`。CI 侧先用 **TTL（默认 6h）** 决定是否调用 refresh；ECS 收到 refresh 后还会做 **`revision_id` 比对**，未变则跳过全量拉取（响应 `skipped`）。IDE 默认每次对比/对齐前调用 refresh（同样 revision 比对；强制刷新传 `"force":true`）。
+脚本入口：`[scripts/ci/run_sync_job.py](scripts/ci/run_sync_job.py)`。CI 侧先用 **TTL（默认 6h）** 决定是否调用 refresh；ECS 收到 refresh 后还会做 `**revision_id` 比对**，未变则跳过全量拉取（响应 `skipped`）。IDE 默认每次对比/对齐前调用 refresh（同样 revision 比对；强制刷新传 `"force":true`）。
 
 相关配置：`[config/message_aliases.yaml](config/message_aliases.yaml)`、`[docs/feishu-doc-write-format.md](docs/feishu-doc-write-format.md)` §4.3（pre 英文类型名）。
 
@@ -241,7 +249,7 @@ sudo nginx -t && sudo systemctl reload nginx
 .junie/game-api-sync/
 config/wiki-registry.yaml
 config/message_aliases.yaml
-scripts/（diff_api、code_to_docx、ci/；单测见 tests/）
+scripts/（`agent_doc_draft.py`、`diff_api`、`code_to_docx`、`ci/`；单测见 tests/）
 .github/workflows/api-doc-sync-reusable.yml
 ```
 

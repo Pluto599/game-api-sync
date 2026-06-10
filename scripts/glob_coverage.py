@@ -7,6 +7,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from extract_code import extract_from_sources
 from registry_globs import glob_key_for_repo, load_registry, normalize_patterns
 
@@ -202,3 +204,36 @@ def check_paths_for_align(
         "suggested_glob": suggested,
         "needs_registry_update": bool(to_add),
     }
+
+
+def apply_registry_glob_update(
+    registry_path: Path,
+    module: str,
+    repo: str,
+    suggested_glob: list[str],
+) -> bool:
+    """
+    Write suggested_glob into module_map.<module>.client_glob|server_glob.
+    Returns True if the file was modified.
+    """
+    if not suggested_glob:
+        return False
+    raw = registry_path.read_text(encoding="utf-8")
+    data = yaml.safe_load(raw) or {}
+    module_map = data.get("module_map") or {}
+    if module not in module_map:
+        raise ValueError(f"unknown module in module_map: {module}")
+    key = glob_key_for_repo(repo)
+    entry = module_map[module]
+    current = normalize_patterns(entry.get(key))
+    if current == suggested_glob:
+        return False
+    if len(suggested_glob) == 1:
+        entry[key] = suggested_glob[0]
+    else:
+        entry[key] = suggested_glob
+    registry_path.write_text(
+        yaml.dump(data, allow_unicode=True, default_flow_style=False, sort_keys=False),
+        encoding="utf-8",
+    )
+    return True
