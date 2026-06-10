@@ -208,17 +208,37 @@ def infer_doc_sync_target(snapshot: dict[str, Any], registry_module: dict[str, A
 def sync_targets_for_module(
     snapshot: dict[str, Any],
     registry_module: dict[str, Any] | None,
+    *,
+    module_map_entry: dict[str, Any] | None = None,
 ) -> list[str]:
-    """Return Feishu doc targets to sync for this module (api_docs / type_constraints)."""
-    from compare_targets import resolve_compare_targets
+    """
+    Feishu doc targets for this module CI sync.
 
-    mod = snapshot.get("module", "")
+    - struct/class → api_docs (modules with api_docs_obj)
+    - enum/interface → type_constraints on modules **without** api_docs_obj (e.g. 网络相关)
+
+    Same changed file may run under 商店 (api_docs) and 网络相关 (type_constraints).
+
+    Override: module_map.<名>._sync_targets: [api_docs, type_constraints]
+    """
     mod_info = registry_module or {}
-    out: list[str] = []
-    for item in resolve_compare_targets(snapshot, None, mod):
-        tgt = item["target"]
-        if tgt == "api_docs" and mod_info.get("api_docs_obj"):
-            out.append(tgt)
-        elif tgt == "type_constraints" and mod_info.get("type_constraints_obj"):
-            out.append(tgt)
-    return out
+    map_entry = module_map_entry or {}
+
+    override = map_entry.get("_sync_targets")
+    if override:
+        allowed = {str(t) for t in override}
+        out: list[str] = []
+        if "api_docs" in allowed and mod_info.get("api_docs_obj"):
+            out.append("api_docs")
+        if "type_constraints" in allowed and mod_info.get("type_constraints_obj"):
+            out.append("type_constraints")
+        return out
+
+    has_api = bool(mod_info.get("api_docs_obj"))
+    has_tc = bool(mod_info.get("type_constraints_obj"))
+    targets: list[str] = []
+    if has_api:
+        targets.append("api_docs")
+    if has_tc and not has_api:
+        targets.append("type_constraints")
+    return targets

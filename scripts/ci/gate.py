@@ -70,10 +70,6 @@ def path_matches_pattern(repo_root: Path, path: str, pattern: str) -> bool:
     )
 
 
-def _pattern_wildcard_rank(pattern: str) -> int:
-    return pattern.count("*") + pattern.count("?")
-
-
 def resolve_modules_for_paths(
     changed: list[str],
     registry: dict[str, Any],
@@ -81,45 +77,19 @@ def resolve_modules_for_paths(
     *,
     repo_root: Path | None = None,
 ) -> dict[str, list[str]]:
-    """Map changed paths to modules; explicit glob paths win over wildcard patterns."""
+    """Map changed paths to every module whose glob matches (a path may belong to several modules)."""
     from registry_globs import normalize_patterns
 
     glob_key = "client_glob" if repo == "client" else "server_glob"
     module_map = registry.get("module_map") or {}
     root = repo_root or Path.cwd()
-
-    explicit_hits: list[tuple[str, str, str]] = []
-    wildcard_hits: list[tuple[str, str, str]] = []
+    result: dict[str, list[str]] = {}
 
     for path in changed:
         for mod, info in module_map.items():
             for pat in normalize_patterns(info.get(glob_key)):
-                if not path_matches_pattern(root, path, pat):
-                    continue
-                if "*" in pat or "?" in pat:
-                    wildcard_hits.append((path, mod, pat))
-                else:
-                    explicit_hits.append((path, mod, pat))
-
-    claimed: set[str] = set()
-    result: dict[str, list[str]] = {}
-
-    for path, mod, pat in sorted(
-        explicit_hits, key=lambda x: (_pattern_wildcard_rank(x[2]), len(x[2]))
-    ):
-        if path in claimed:
-            continue
-        claimed.add(path)
-        result.setdefault(mod, []).append(path)
-
-    for path, mod, pat in sorted(
-        wildcard_hits, key=lambda x: (_pattern_wildcard_rank(x[2]), len(x[2]))
-    ):
-        if path in claimed:
-            continue
-        claimed.add(path)
-        result.setdefault(mod, []).append(path)
-
+                if path_matches_pattern(root, path, pat):
+                    result.setdefault(mod, []).append(path)
     return {mod: sorted(set(paths)) for mod, paths in result.items()}
 
 

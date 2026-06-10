@@ -119,7 +119,9 @@ def run_module(
     files = collect_changed_protocol_files(repo_root, changed_norm)
     fp = protocol_fingerprint(files, repo)
     mod_info = (registry.get("modules") or {}).get(module) or {}
-    targets = sync_targets_for_module(snapshot, mod_info)
+    targets = sync_targets_for_module(
+        snapshot, mod_info, module_map_entry=mod_map[module]
+    )
 
     out: dict[str, Any] = {
         "module": module,

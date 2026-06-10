@@ -155,6 +155,34 @@ public class ShopGitActionsTestProbeRequest {
         self.assertIn("ShopGitActionsTestRequestType", xml)
         self.assertNotIn("ShopGitActionsTestProbeRequest", xml)
 
+    def test_shop_module_api_docs_only_has_classes(self) -> None:
+        proto = """
+public enum ShopGitActionsTestRequestType {
+    PROBE = 99,
+}
+public class ShopGitActionsTestProbeRequest {
+    public string uid;
+}
+"""
+        files = {"Assets/Network/ShopGitActionsTestProtocol.cs": proto}
+        code = extract_from_sources(files, repo="client")
+        compare_api = {
+            "message_results": [
+                {"status": "missing_in_doc", "message": "ShopGitActionsTestProbeRequest"},
+            ],
+            "enum_issues": [],
+        }
+        snap = {"module": "商店", "api_docs": {"structs": [{"direction": "client"}]}}
+        xml = build_docx_draft(
+            snapshot=snap,
+            compare_result=compare_api,
+            files=files,
+            repo="client",
+            target="api_docs",
+        )
+        self.assertIn("ShopGitActionsTestProbeRequest", xml)
+        self.assertNotIn("ShopGitActionsTestRequestType", xml)
+
 
 if __name__ == "__main__":
     unittest.main()
