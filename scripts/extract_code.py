@@ -74,7 +74,50 @@ def _parse_csharp_type_and_name(decl: str) -> tuple[str, str] | None:
     return _normalize_type(typ), name
 
 
-def _extract_csharp_messages(text: str, *, file_path: str) -> tuple[list[dict], list[dict], list[dict]]:
+def _body_after_brace(text: str, from_pos: int) -> str | None:
+    brace = text.find("{", from_pos)
+    if brace < 0:
+        return None
+    block, _ = _brace_block(text, brace)
+    return block
+
+
+def _is_nested_declaration(text: str, match_start: int) -> bool:
+    """Skip private nested types (e.g. serializer helpers), not namespace-level declarations."""
+    line_start = text.rfind("\n", 0, match_start) + 1
+    line_end = text.find("\n", match_start)
+    if line_end == -1:
+        line_end = len(text)
+    line = text[line_start:line_end]
+    return bool(re.search(r"\bprivate\s+(?:sealed\s+)?(?:class|struct)\b", line))
+
+
+def _extract_csharp_interfaces(text: str, *, file_path: str) -> list[dict]:
+    interfaces: list[dict] = []
+    for m in re.finditer(r"public\s+interface\s+(\w+)", text):
+        if _is_nested_declaration(text, m.start()):
+            continue
+        name = m.group(1)
+        block = _body_after_brace(text, m.end())
+        if block is None:
+            continue
+        members: list[dict[str, str]] = []
+        for line in block.splitlines():
+            line = line.strip()
+            if not line or line.startswith("["):
+                continue
+            mm = re.match(
+                r"[\w<>,\[\]\.\?\s]+\s+(\w+)\s*(?:<[^>]*>)?\s*\(",
+                line,
+            )
+            if mm and mm.group(1) not in _CS_SKIP:
+                members.append({"name": mm.group(1), "value": ""})
+        if members:
+            interfaces.append({"name": name, "members": members, "file": file_path})
+    return interfaces
+
+
+def _extract_csharp_messages(text: str, *, file_path: str) -> tuple[list[dict], list[dict], list[dict], list[dict]]:
     messages: list[dict] = []
     enums: list[dict] = []
     constants: list[dict] = []
@@ -83,8 +126,12 @@ def _extract_csharp_messages(text: str, *, file_path: str) -> tuple[list[dict], 
         r"(?:public\s+)?(?:partial\s+)?(?:class|struct)\s+(\w+)",
         text,
     ):
+        if _is_nested_declaration(text, m.start()):
+            continue
         name = m.group(1)
-        block, _ = _brace_block(text, m.end() - 1)
+        block = _body_after_brace(text, m.end())
+        if block is None:
+            continue
         fields: list[dict] = []
         for line in block.splitlines():
             line = line.strip()
@@ -106,7 +153,9 @@ def _extract_csharp_messages(text: str, *, file_path: str) -> tuple[list[dict], 
 
     for m in re.finditer(r"enum\s+(\w+)", text):
         ename = m.group(1)
-        block, _ = _brace_block(text, m.end() - 1)
+        block = _body_after_brace(text, m.end())
+        if block is None:
+            continue
         members = _parse_enum_members(block)
         if members:
             enums.append({"name": ename, "members": members, "file": file_path})
@@ -119,10 +168,11 @@ def _extract_csharp_messages(text: str, *, file_path: str) -> tuple[list[dict], 
             {"name": m.group(1), "value": m.group(2).strip(), "file": file_path}
         )
 
-    return messages, enums, constants
+    interfaces = _extract_csharp_interfaces(text, file_path=file_path)
+    return messages, enums, constants, interfaces
 
 
-def _extract_cpp_messages(text: str, *, file_path: str) -> tuple[list[dict], list[dict], list[dict]]:
+def _extract_cpp_messages(text: str, *, file_path: str) -> tuple[list[dict], list[dict], list[dict], list[dict]]:
     messages: list[dict] = []
     enums: list[dict] = []
     constants: list[dict] = []
@@ -131,7 +181,9 @@ def _extract_cpp_messages(text: str, *, file_path: str) -> tuple[list[dict], lis
         name = m.group(1)
         if name in _CPP_SKIP:
             continue
-        block, _ = _brace_block(text, m.end() - 1)
+        block = _body_after_brace(text, m.end())
+        if block is None:
+            continue
         fields: list[dict] = []
         for line in block.splitlines():
             line = line.strip().rstrip(",")
@@ -165,7 +217,9 @@ def _extract_cpp_messages(text: str, *, file_path: str) -> tuple[list[dict], lis
 
     for m in re.finditer(r"enum\s+(?:class\s+)?(\w+)", text):
         ename = m.group(1)
-        block, _ = _brace_block(text, m.end() - 1)
+        block = _body_after_brace(text, m.end())
+        if block is None:
+            continue
         members = _parse_enum_members(block)
         if members:
             enums.append({"name": ename, "members": members, "file": file_path})
@@ -182,7 +236,7 @@ def _extract_cpp_messages(text: str, *, file_path: str) -> tuple[list[dict], lis
             {"name": m.group(1), "value": m.group(2).strip(), "file": file_path}
         )
 
-    return messages, enums, constants
+    return messages, enums, constants, []
 
 
 def _parse_enum_members(body: str) -> list[dict[str, str]]:
@@ -211,13 +265,14 @@ def extract_from_sources(
     messages: list[dict] = []
     enums: list[dict] = []
     constants: list[dict] = []
+    interfaces: list[dict] = []
 
     for path, text in files.items():
         ext = _ext(path)
         if ext == ".cs":
-            msgs, ens, consts = _extract_csharp_messages(text, file_path=path)
+            msgs, ens, consts, ifaces = _extract_csharp_messages(text, file_path=path)
         elif ext in (".h", ".hpp", ".cpp", ".c"):
-            msgs, ens, consts = _extract_cpp_messages(text, file_path=path)
+            msgs, ens, consts, ifaces = _extract_cpp_messages(text, file_path=path)
         else:
             continue
         for msg in msgs:
@@ -225,11 +280,13 @@ def extract_from_sources(
             messages.append(msg)
         enums.extend(ens)
         constants.extend(consts)
+        interfaces.extend(ifaces)
 
     return {
         "repo": repo,
         "direction": direction,
         "messages": messages,
         "enums": enums,
+        "interfaces": interfaces,
         "constants": constants,
     }

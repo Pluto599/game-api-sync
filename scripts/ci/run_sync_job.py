@@ -17,8 +17,8 @@ SCRIPT_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPT_DIR))
 
 from classify_diff import classify_compare_result  # noqa: E402
-from code_to_docx import build_docx_draft, infer_doc_sync_target  # noqa: E402
-from diff_api import compare_module_all_targets  # noqa: E402
+from code_to_docx import build_docx_draft, sync_targets_for_module  # noqa: E402
+from diff_api import compare_snapshot_to_code  # noqa: E402
 
 from ci.gate import (  # noqa: E402
     discover_orphans,
@@ -118,19 +118,13 @@ def run_module(
     snapshot = fetch_snapshot(module)
     files = collect_changed_protocol_files(repo_root, changed_norm)
     fp = protocol_fingerprint(files, repo)
-    compare = compare_module_all_targets(
-        snapshot,
-        files,
-        module=module,
-        repo=repo,
-        registry_modules=registry.get("modules"),
-        repo_root=repo_root,
-    )
-    classification = classify_compare_result(compare)
+    mod_info = (registry.get("modules") or {}).get(module) or {}
+    targets = sync_targets_for_module(snapshot, mod_info)
+
     out: dict[str, Any] = {
         "module": module,
         "fingerprint": fp,
-        "classification": classification,
+        "targets": [],
     }
 
     state_path = repo_root / ".api-sync" / "state.json"
@@ -141,57 +135,94 @@ def run_module(
         out["reason"] = "fingerprint_unchanged"
         return out
 
-    if not classification["sync_recommended"]:
+    if not targets:
         out["skipped"] = True
-        out["reason"] = classification["classification"]
+        out["reason"] = "no_feishu_target"
         return out
 
-    target = infer_doc_sync_target(snapshot, (registry.get("modules") or {}).get(module))
-    draft = build_docx_draft(
-        snapshot=snapshot,
-        compare_result=compare,
-        files=files,
-        repo=repo,
-        target=target,
-        changed_paths=changed_norm,
-    )
-    if not draft.strip():
-        out["skipped"] = True
-        out["reason"] = "no_draft_in_changed_files"
-        return out
+    synced: list[dict[str, Any]] = []
+    for tgt in targets:
+        compare = compare_snapshot_to_code(
+            snapshot,
+            files,
+            module=module,
+            repo=repo,
+            target=tgt,
+            registry_modules=registry.get("modules"),
+            repo_root=repo_root,
+        )
+        classification = classify_compare_result(compare)
+        target_out: dict[str, Any] = {
+            "target": tgt,
+            "classification": classification,
+        }
+        if not classification["sync_recommended"]:
+            target_out["skipped"] = True
+            target_out["reason"] = classification["classification"]
+            out["targets"].append(target_out)
+            continue
 
-    sync_body = {
-        "module": module,
-        "repo": repo,
-        "target": target,
-        "summary": f"CI sync {module} ({classification['classification']})",
-        "files_changed": changed_norm,
-        "docx_draft": draft,
-    }
-    sync_result = _api("POST", "/jobs/api-doc-sync", sync_body)
-    out["sync"] = sync_result
-    state[module] = {
-        "fingerprint": fp,
-        "classification": classification["classification"],
-        "revision_id": sync_result.get("feishu"),
-    }
-    write_state(state_path, state)
+        draft = build_docx_draft(
+            snapshot=snapshot,
+            compare_result=compare,
+            files=files,
+            repo=repo,
+            target=tgt,
+            changed_paths=changed_norm,
+        )
+        if not draft.strip():
+            target_out["skipped"] = True
+            target_out["reason"] = "no_draft_in_changed_files"
+            out["targets"].append(target_out)
+            continue
+
+        sync_body = {
+            "module": module,
+            "repo": repo,
+            "target": tgt,
+            "summary": f"CI sync {module}/{tgt} ({classification['classification']})",
+            "files_changed": changed_norm,
+            "docx_draft": draft,
+        }
+        sync_result = _api("POST", "/jobs/api-doc-sync", sync_body)
+        target_out["sync"] = sync_result
+        synced.append(target_out)
+        out["targets"].append(target_out)
+
+    if synced:
+        out["classification"] = synced[-1]["classification"]
+        state[module] = {
+            "fingerprint": fp,
+            "classification": synced[-1]["classification"]["classification"],
+            "revision_id": synced[-1]["sync"].get("feishu"),
+        }
+        write_state(state_path, state)
+    else:
+        out["skipped"] = True
+        out["reason"] = "no_target_synced"
     return out
 
 
 def _format_module_summary(r: dict[str, Any]) -> list[str]:
     lines: list[str] = []
-    cls = r.get("classification") or {}
-    label = cls.get("classification", "?")
-    lines.append(f"- **classification**: `{label}`")
+    if r.get("targets"):
+        for t in r["targets"]:
+            tgt = t.get("target", "?")
+            cls = t.get("classification") or {}
+            label = cls.get("classification", "?")
+            lines.append(f"- **{tgt}** classification: `{label}`")
+            if t.get("skipped"):
+                lines.append(f"  - skipped: `{t.get('reason', 'unknown')}`")
+            elif t.get("sync"):
+                sync = t["sync"]
+                ok = sync.get("ok", sync.get("success"))
+                lines.append(f"  - sync: {'ok' if ok else 'failed'}")
+    else:
+        cls = r.get("classification") or {}
+        if cls:
+            lines.append(f"- **classification**: `{cls.get('classification', '?')}`")
     if r.get("skipped"):
         lines.append(f"- **skipped**: `{r.get('reason', 'unknown')}`")
-    elif r.get("sync"):
-        sync = r["sync"]
-        ok = sync.get("ok", sync.get("success"))
-        lines.append(f"- **sync**: {'ok' if ok else 'failed'}")
-        if sync.get("message"):
-            lines.append(f"- **message**: {sync['message']}")
     if r.get("error"):
         lines.append(f"- **error**: {r['error']}")
     return lines

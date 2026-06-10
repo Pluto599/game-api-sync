@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import html
-import re
 from typing import Any
 
 from extract_code import extract_from_sources
@@ -38,13 +37,19 @@ def _enum_to_pseudo_ts(en: dict) -> str:
     return f"enum {en['name']} {{ {body} }}"
 
 
+def _interface_to_pseudo_ts(iface: dict) -> str:
+    members = iface.get("members") or []
+    body = "; ".join(f"{m['name']}()" for m in members)
+    return f"interface {iface['name']} {{ {body}; }}"
+
+
 def snapshot_uses_mode_a(snapshot: dict[str, Any], target: str = "api_docs") -> bool:
     block = snapshot.get(target) or {}
-    for st in block.get("structs") or []:
+    for st in block.get("structs", []):
         d = st.get("direction")
         if d in ("client", "server"):
             return True
-    for rb in block.get("raw_blocks") or []:
+    for rb in block.get("raw_blocks", []):
         text = (rb.get("text") or rb.get("code") or "")
         if "客户端" in text or "服务端" in text:
             return True
@@ -63,50 +68,66 @@ def _in_changed_paths(item: dict[str, Any], changed_paths: set[str] | None) -> b
     return _norm_path(item.get("file") or "") in changed_paths
 
 
+def _compare_parts(compare_result: dict[str, Any]) -> list[dict[str, Any]]:
+    if compare_result.get("parts"):
+        return list(compare_result["parts"])
+    return [compare_result]
+
+
 def _items_to_sync(
     compare_result: dict[str, Any],
     code: dict[str, Any],
     *,
+    target: str,
     changed_paths: set[str] | None = None,
-) -> tuple[list[dict], list[dict]]:
-    """Messages/enums missing_in_doc (or field gap), optionally limited to changed files."""
+) -> tuple[list[dict], list[dict], list[dict]]:
+    """
+    Pick items to write back by document target:
+    - api_docs: struct/class messages only
+    - type_constraints: enums and interfaces only
+    """
     sync_msgs: list[dict] = []
     sync_enums: list[dict] = []
+    sync_ifaces: list[dict] = []
     code_msgs = {m["name"]: m for m in code.get("messages", [])}
     code_enums = {e["name"]: e for e in code.get("enums", [])}
+    code_ifaces = {i["name"]: i for i in code.get("interfaces", [])}
 
-    message_results = compare_result.get("message_results") or []
-    if compare_result.get("parts"):
-        message_results = []
-        for p in compare_result["parts"]:
-            message_results.extend(p.get("message_results") or [])
+    part = _compare_parts(compare_result)[0]
+    message_results = part.get("message_results") or []
+    enum_issues = part.get("enum_issues") or []
 
-    seen_msg: set[str] = set()
-    for r in message_results:
-        if r.get("status") == "missing_in_doc":
-            name = r.get("message")
-            if name and name in code_msgs and name not in seen_msg:
-                msg = code_msgs[name]
-                if _in_changed_paths(msg, changed_paths):
-                    sync_msgs.append(msg)
-                    seen_msg.add(name)
-        elif r.get("status") == "diff" and r.get("missing_in_doc"):
-            name = r.get("message")
-            if name and name in code_msgs and name not in seen_msg:
-                msg = code_msgs[name]
-                if _in_changed_paths(msg, changed_paths):
-                    sync_msgs.append(msg)
-                    seen_msg.add(name)
+    if target == "api_docs":
+        seen_msg: set[str] = set()
+        for r in message_results:
+            if r.get("status") == "missing_in_doc":
+                name = r.get("message")
+                if name and name in code_msgs and name not in seen_msg:
+                    msg = code_msgs[name]
+                    if _in_changed_paths(msg, changed_paths):
+                        sync_msgs.append(msg)
+                        seen_msg.add(name)
+            elif r.get("status") == "diff" and r.get("missing_in_doc"):
+                name = r.get("message")
+                if name and name in code_msgs and name not in seen_msg:
+                    msg = code_msgs[name]
+                    if _in_changed_paths(msg, changed_paths):
+                        sync_msgs.append(msg)
+                        seen_msg.add(name)
 
-    enum_issues = compare_result.get("enum_issues") or []
-    if compare_result.get("parts"):
-        enum_issues = []
-        for p in compare_result["parts"]:
-            enum_issues.extend(p.get("enum_issues") or [])
-
-    seen_en: set[str] = set()
-    for ei in enum_issues:
-        if ei.get("kind") == "missing_in_doc":
+    if target == "type_constraints":
+        seen_en: set[str] = set()
+        for ei in enum_issues:
+            if ei.get("kind") != "missing_in_doc":
+                continue
+            if ei.get("type_kind") == "interface":
+                name = ei.get("enum")
+                if name and name in code_ifaces and name not in seen_en:
+                    iface = code_ifaces[name]
+                    if _in_changed_paths(iface, changed_paths):
+                        sync_ifaces.append(iface)
+                        seen_en.add(name)
+                continue
             name = ei.get("enum")
             if name and name in code_enums and name not in seen_en:
                 en = code_enums[name]
@@ -114,7 +135,7 @@ def _items_to_sync(
                     sync_enums.append(en)
                     seen_en.add(name)
 
-    return sync_msgs, sync_enums
+    return sync_msgs, sync_enums, sync_ifaces
 
 
 def build_docx_draft(
@@ -136,31 +157,24 @@ def build_docx_draft(
             k: v for k, v in files.items() if _norm_path(k) in changed_set
         }
     code = extract_from_sources(draft_files, repo=repo)
-    sync_msgs, sync_enums = _items_to_sync(
-        compare_result, code, changed_paths=changed_set
+    sync_msgs, sync_enums, sync_ifaces = _items_to_sync(
+        compare_result, code, target=target, changed_paths=changed_set
     )
     mode_a = snapshot_uses_mode_a(snapshot, target)
     parts: list[str] = []
 
     if target == "type_constraints":
+        tc_blocks: list[str] = []
         if sync_enums:
-            enum_body = "\n".join(_enum_to_pseudo_ts(e) for e in sync_enums)
+            tc_blocks.append("\n".join(_enum_to_pseudo_ts(e) for e in sync_enums))
+        if sync_ifaces:
+            tc_blocks.append("\n".join(_interface_to_pseudo_ts(i) for i in sync_ifaces))
+        if tc_blocks:
             parts.append(f"<h1>类型补充{marker}</h1>")
-            parts.append(f'<pre lang="TypeScript"><code>{html.escape(enum_body)}</code></pre>')
-        if sync_msgs:
-            for msg in sync_msgs:
-                body = _fields_to_pseudo_ts(msg["name"], msg.get("fields") or [])
-                parts.append(f"<h1>{html.escape(msg['name'])}{marker}</h1>")
-                parts.append(
-                    f'<pre lang="TypeScript"><code>{html.escape(body)}</code></pre>'
-                )
+            parts.append(
+                f'<pre lang="TypeScript"><code>{html.escape(chr(10).join(tc_blocks))}</code></pre>'
+            )
         return "".join(parts)
-
-    if sync_enums:
-        h = "h2" if mode_a else "h1"
-        parts.append(f"<{h}>枚举{marker}</{h}>")
-        enum_body = "\n".join(_enum_to_pseudo_ts(e) for e in sync_enums)
-        parts.append(f'<pre lang="TypeScript"><code>{html.escape(enum_body)}</code></pre>')
 
     for msg in sync_msgs:
         section = msg.get("section") or msg["name"]
@@ -189,3 +203,22 @@ def infer_doc_sync_target(snapshot: dict[str, Any], registry_module: dict[str, A
     if targets and targets[0]["target"] == "type_constraints":
         return "type_constraints"
     return "api_docs"
+
+
+def sync_targets_for_module(
+    snapshot: dict[str, Any],
+    registry_module: dict[str, Any] | None,
+) -> list[str]:
+    """Return Feishu doc targets to sync for this module (api_docs / type_constraints)."""
+    from compare_targets import resolve_compare_targets
+
+    mod = snapshot.get("module", "")
+    mod_info = registry_module or {}
+    out: list[str] = []
+    for item in resolve_compare_targets(snapshot, None, mod):
+        tgt = item["target"]
+        if tgt == "api_docs" and mod_info.get("api_docs_obj"):
+            out.append(tgt)
+        elif tgt == "type_constraints" and mod_info.get("type_constraints_obj"):
+            out.append(tgt)
+    return out

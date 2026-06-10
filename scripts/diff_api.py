@@ -169,6 +169,7 @@ def _compare_enums(
     code_enums: list[dict],
     *,
     scope_type_names: set[str] | None = None,
+    include_missing_in_doc: bool = True,
 ) -> list[dict[str, Any]]:
     code_by_name = {e["name"]: e for e in code_enums}
     issues: list[dict[str, Any]] = []
@@ -207,7 +208,26 @@ def _compare_enums(
     for name in sorted(set(code_by_name) - doc_enum_names):
         if scope_type_names is not None and name not in scope_type_names:
             continue
+        if not include_missing_in_doc:
+            continue
         issues.append({"enum": name, "kind": "missing_in_doc"})
+    return issues
+
+
+def _compare_interfaces(
+    doc_enums: list[dict],
+    code_interfaces: list[dict],
+    *,
+    scope_type_names: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Interfaces are documented in type_constraints; match by name against doc enums/types."""
+    code_by_name = {i["name"]: i for i in code_interfaces}
+    doc_names = {e.get("name") for e in doc_enums if e.get("name")}
+    issues: list[dict[str, Any]] = []
+    for name in sorted(set(code_by_name) - doc_names):
+        if scope_type_names is not None and name not in scope_type_names:
+            continue
+        issues.append({"enum": name, "kind": "missing_in_doc", "type_kind": "interface"})
     return issues
 
 
@@ -323,27 +343,48 @@ def compare_snapshot_to_code(
         if cm:
             matched_code_names.add(cm["name"])
 
-    for msg in code.get("messages", []):
-        if msg["name"] in matched_code_names:
-            continue
-        if scope_type_names is not None and msg["name"] not in scope_type_names:
-            ignored_out_of_scope.append(msg["name"])
-            continue
-        message_results.append(
-            {
-                "message": msg["name"],
-                "section": msg.get("section"),
-                "direction": msg["direction"],
-                "status": "missing_in_doc",
-                "code_fields": [f["name"] for f in msg["fields"]],
-            }
-        )
-        defects.append(f"代码类型 `{msg['name']}` 在文档（同方向）中未描述")
+    compare_target = target or "api_docs"
+    if compare_target == "api_docs":
+        for msg in code.get("messages", []):
+            if msg["name"] in matched_code_names:
+                continue
+            if scope_type_names is not None and msg["name"] not in scope_type_names:
+                ignored_out_of_scope.append(msg["name"])
+                continue
+            message_results.append(
+                {
+                    "message": msg["name"],
+                    "section": msg.get("section"),
+                    "direction": msg["direction"],
+                    "status": "missing_in_doc",
+                    "code_fields": [f["name"] for f in msg["fields"]],
+                }
+            )
+            defects.append(f"代码类型 `{msg['name']}` 在文档（同方向）中未描述")
 
     doc_enums = _doc_enums_for_target(snapshot, target)
-    enum_issues = _compare_enums(
-        doc_enums, code.get("enums", []), scope_type_names=scope_type_names
-    )
+    enum_issues: list[dict[str, Any]] = []
+    if compare_target == "type_constraints":
+        enum_issues = _compare_enums(
+            doc_enums,
+            code.get("enums", []),
+            scope_type_names=scope_type_names,
+            include_missing_in_doc=True,
+        )
+        enum_issues.extend(
+            _compare_interfaces(
+                doc_enums,
+                code.get("interfaces", []),
+                scope_type_names=scope_type_names,
+            )
+        )
+    elif compare_target == "api_docs":
+        enum_issues = _compare_enums(
+            doc_enums,
+            code.get("enums", []),
+            scope_type_names=scope_type_names,
+            include_missing_in_doc=False,
+        )
     for ei in enum_issues:
         if ei["kind"] == "missing_in_code":
             defects.append(f"文档枚举 `{ei['enum']}` 代码未找到")

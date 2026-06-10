@@ -63,4 +63,7 @@ def scope_type_names_from_code(code: dict[str, Any]) -> set[str]:
     for en in code.get("enums", []):
         if en.get("name"):
             names.add(en["name"])
+    for iface in code.get("interfaces", []):
+        if iface.get("name"):
+            names.add(iface["name"])
     return names

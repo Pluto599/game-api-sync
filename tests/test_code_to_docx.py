@@ -42,14 +42,17 @@ public struct ShopCatalogItem {
         code_draft = extract_from_sources(
             {"Assets/Network/ShopProtocolDraft.cs": draft}, repo="client"
         )
-        msgs, enums = _items_to_sync(
+        msgs, enums, ifaces = _items_to_sync(
             compare_result,
             code_draft,
+            target="api_docs",
             changed_paths={"Assets/Network/ShopProtocolDraft.cs"},
         )
         names = {m["name"] for m in msgs}
         self.assertIn("ShopCatalogItem", names)
         self.assertNotIn("ShopState", names)
+        self.assertEqual(enums, [])
+        self.assertEqual(ifaces, [])
 
     def test_build_draft_uses_changed_paths_only(self) -> None:
         snap = {"module": "商店", "api_docs": {"structs": [{"direction": "client"}]}}
@@ -80,6 +83,7 @@ public class ShopState {
             compare_result=compare_result,
             files=files,
             repo="client",
+            target="api_docs",
             changed_paths=["Assets/Network/ShopProtocolDraft.cs"],
         )
         self.assertIn("ShopCatalogItem", xml)
@@ -97,8 +101,8 @@ public class ShopState {
             ],
             "enum_issues": [],
         }
-        msgs, _ = _items_to_sync(
-            compare_result, code, changed_paths=set()
+        msgs, _, _ = _items_to_sync(
+            compare_result, code, target="api_docs", changed_paths=set()
         )
         self.assertEqual(msgs, [])
         xml = build_docx_draft(
@@ -106,9 +110,50 @@ public class ShopState {
             compare_result=compare_result,
             files=files,
             repo="client",
+            target="api_docs",
             changed_paths=[],
         )
         self.assertEqual(xml, "")
+
+    def test_type_constraints_gets_enums_not_classes(self) -> None:
+        proto = """
+public enum ShopGitActionsTestRequestType {
+    PROBE = 99,
+}
+public class ShopGitActionsTestProbeRequest {
+    public string uid;
+}
+"""
+        files = {"Assets/Network/ShopGitActionsTestProtocol.cs": proto}
+        code = extract_from_sources(files, repo="client")
+        compare_tc = {
+            "message_results": [
+                {
+                    "status": "missing_in_doc",
+                    "message": "ShopGitActionsTestProbeRequest",
+                }
+            ],
+            "enum_issues": [
+                {"kind": "missing_in_doc", "enum": "ShopGitActionsTestRequestType"},
+            ],
+        }
+        msgs, enums, ifaces = _items_to_sync(
+            compare_tc, code, target="type_constraints", changed_paths=None
+        )
+        self.assertEqual(msgs, [])
+        self.assertEqual(len(enums), 1)
+        self.assertEqual(enums[0]["name"], "ShopGitActionsTestRequestType")
+
+        snap = {"module": "商店", "type_constraints": {"structs": []}}
+        xml = build_docx_draft(
+            snapshot=snap,
+            compare_result=compare_tc,
+            files=files,
+            repo="client",
+            target="type_constraints",
+        )
+        self.assertIn("ShopGitActionsTestRequestType", xml)
+        self.assertNotIn("ShopGitActionsTestProbeRequest", xml)
 
 
 if __name__ == "__main__":
