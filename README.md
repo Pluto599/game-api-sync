@@ -1,8 +1,31 @@
 # game-api-sync
 
-飞书 Wiki 为权威接口文档。中央服务在 ECS，无需安装 lark-cli。
+飞书 Wiki 为权威接口文档。中央服务部署在 ECS，成员机**无需**安装 `lark-cli`。
 
 仓库：[https://github.com/Pluto599/game-api-sync](https://github.com/Pluto599/game-api-sync)
+
+## 仓库角色
+
+
+| 仓库                      | 职责                                                             |
+| ----------------------- | -------------------------------------------------------------- |
+| **本仓（中央仓）**             | ECS API 服务、`scripts/` 对比/写回逻辑、飞书 `modules` 注册表、CI 可复用 Workflow |
+| **client / server 游戏仓** | 协议源代码、`module_map` 路径配置、Agent 协作规则、合并后 CI 写回飞书草稿               |
+
+
+中央仓目录概览：
+
+```
+api-server/          # FastAPI 服务（仅 ECS）
+config/              # wiki-registry.yaml、message_aliases.yaml
+scripts/             # 对比、写回、glob 门禁、CI 入口
+deploy/              # ECS 安装脚本
+.github/workflows/   # 可复用 CI + client/server 示例 workflow
+.cursor/             # Cursor 规则与 Skill（复制到游戏仓）
+.github/skills/      # Copilot Skill（复制到游戏仓）
+tests/               # 中央仓单元测试
+docs/                # 飞书写文档格式说明（可选阅读）
+```
 
 ---
 
@@ -14,9 +37,11 @@
 
 **你怎么做**：
 
-1. 在 IDE 中说：
-  请刷新 ECS 上【战斗】模块的接口文档缓存  
-    全量刷新可说：请刷新 ECS 全部模块的接口文档缓存）
+在 IDE 中说：
+
+> 请刷新 ECS 上【战斗】模块的接口文档缓存
+
+全量刷新可说：请刷新 ECS 全部模块的接口文档缓存
 
 ---
 
@@ -29,26 +54,26 @@
 1. 打开 client 或 server 仓库，切到当前工作分支。
 2. Agent 先 `POST /jobs/refresh-cache`（**当前模块**；默认 **revision 比对**，飞书未改则跳过全量拉取；用户说「飞书刚改/强制刷新」时传 `"force":true`）。
 3. 在 IDE 中说：
-  对比【战斗】模块飞书文档与当前仓库实现的差异，生成对比报告并指出实现缺陷
+  > 对比【战斗】模块飞书文档与当前仓库实现的差异，生成对比报告并指出实现缺陷
 4. Agent 执行：
-  `GET .../api/snapshot?module=战斗`；  
-   按 `config/wiki-registry.yaml` 读取本仓协议源文件；  
-   `POST .../jobs/api-compare`（Body：`module`、`repo`、`files` 路径→文件全文）；返回 `report_md` 与 `defects`；  
-   输出：**对比报告**（按章节/方向/消息分组，字段名+类型级差异）+ **缺陷列表**。
+  - `GET .../api/snapshot?module=战斗`；
+  - 按 `config/wiki-registry.yaml` 读取本仓协议源文件；
+  - `POST .../jobs/api-compare`（Body：`module`、`repo`、`files` 路径→文件全文）；返回 `report_md` 与 `defects`；
+  - 输出：**对比报告**（按章节/方向/消息分组，字段名+类型级差异）+ **缺陷列表**。
 
 ---
 
 ### 3. 在 IDE 主动对齐代码
 
-**场景**：有人在飞书更新了「战斗」等模块的接口说明；ECS 刷新该模块快照（定时或后续由 webhook 触发）。
+**场景**：有人在飞书更新了「战斗」等模块的接口说明；ECS 刷新该模块快照（定时或 webhook 触发）。
 
 **你怎么做**（client / server **各自仓库、各自分支**，互不影响）：
 
 1. `git checkout` 到你要提交的功能分支（例如 `feature/battle-v2`）。
 2. 打开 **client** 或 **server** 仓库（一次只对一个仓）。
 3. 在 Cursor / Copilot / Rider 中说：
-  > 根据最新飞书接口文档，对齐本仓库战斗模块代码
-4. Agent 按 Skill / `.cursor/rules/` 执行：
+  > 根据最新飞书接口文档，对齐本仓库【战斗】模块的协议代码
+4. Agent 按 Skill / `.cursor/rules/` 或 `.github/copilot-instructions.md` 执行：
   - `GET $env:API_SYNC_BASE/api/snapshot?module=战斗` 取文档解析结果（AST/字段列表）；
   - 读本仓 `config/wiki-registry.yaml` 的 `client_glob` 或 `server_glob`，定位**已有** `.cs` / `.h` 等文件；
   - 就地改 struct / enum / 序列化逻辑，**不**创建 `Generated/`；
@@ -63,9 +88,10 @@
 **你怎么做**：
 
 1. 在 **client** 或 **server** 当前分支完成代码修改。
-2. 在 IDE 中说：
+2. 本机需有中央仓克隆（用于调用 `scripts/agent_doc_draft.py`）。
+3. 在 IDE 中说：
   > 根据当前代码变更，生成飞书文档更新草稿
-3. Agent 在游戏仓根目录运行中央仓 CLI（与 CI 同一套分流规则）：
+4. Agent 在游戏仓根目录运行：
 
 ```powershell
 python <中央仓>/scripts/agent_doc_draft.py `
@@ -74,9 +100,9 @@ python <中央仓>/scripts/agent_doc_draft.py `
   --apply-glob
 ```
 
-   - `--git-since origin/main` 可代替 `--paths` 自动取变更文件。
-   - `--apply-glob` 自动补齐 `wiki-registry.yaml` 中漏网路径；**须核对 git diff**。
-   - 输出 JSON 含 `drafts[].api_doc_sync_body`；Agent 再 `POST /jobs/api-doc-sync`（或加 `--sync`）。
+- `--git-since origin/main` 可代替 `--paths` 自动取变更文件。
+- `--apply-glob` 自动补齐 `wiki-registry.yaml` 中漏网路径；**须核对 git diff**。
+- 输出 JSON 含 `drafts[].api_doc_sync_body`；Agent 再 `POST /jobs/api-doc-sync`（或加 `--sync`）。
 
 ECS 写入飞书正文（模式 A 插入 **h1 客户端/服务端** 分区末尾）；负责人按 `docs/feishu-doc-write-format.md` 审阅。
 
@@ -89,10 +115,10 @@ ECS 写入飞书正文（模式 A 插入 **h1 客户端/服务端** 分区末尾
 **与用法 4 的区别**：
 
 
-|      | 用法 4（IDE）           | 用法 5（CI）                |
-| ---- | ------------------- | ----------------------- |
-| 触发   | 你在 IDE 里主动说「写回飞书草稿」 | PR **合并**且变更命中协议路径      |
-| 草稿标记 | agent生成，待审查         | CI生成，待审查                |
+|      | 用法 4（IDE）                                      | 用法 5（CI）                |
+| ---- | ---------------------------------------------- | ----------------------- |
+| 触发   | 你在 IDE 里主动说「写回飞书草稿」                            | PR **合并**且变更命中协议路径      |
+| 草稿标记 | agent生成，待审查                                    | CI生成，待审查                |
 | 生成方式 | `agent_doc_draft.py` + `code_to_docx`（与 CI 同源） | `code_to_docx.py` 确定性生成 |
 
 
@@ -108,19 +134,85 @@ ECS 写入飞书正文（模式 A 插入 **h1 客户端/服务端** 分区末尾
 
 **CI 不会做的事**：不自动改代码、不自动改 `wiki-registry.yaml`、不覆盖已有正式文档段落（只 append 草稿）。`_status: draft` 的模块在 CI 中跳过写回。
 
-实现细节（可复用 Workflow、门禁脚本、ECS 按需 refresh）见下文 [§六](#六github-actions-实现说明)。
+实现细节见下文 [§六](#六github-actions-实现说明)。
 
 ---
 
-## 二、`config/wiki-registry.yaml` 与 glob
+## 二、同步到游戏仓库的文件
+
+client / server 游戏仓**不需要** fork 或 submodule 整个中央仓。按需从中央仓拷贝下列文件，并在本仓维护 `module_map` 路径。
+
+### 必拷 
+
+
+| 路径（中央仓 → 游戏仓同路径）              | 用途               | 维护说明                                                                                                                             |
+| ----------------------------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `config/wiki-registry.yaml`   | 模块注册 + 协议路径 glob | `**modules`**（飞书 `obj_token`）须与中央仓 / ECS 一致；`**module_map**` 按本仓实际目录改 `client_glob` 或 `server_glob`（client 仓只维护前者，server 仓只维护后者） |
+| `config/message_aliases.yaml` | 对比时中文章节名 ↔ 英文类型名 | 宜与中央仓同步；对比 API 的 `files` 须含此文件全文                                                                                                 |
+
+
+### IDE / Agent 协作
+
+
+| 路径                                        | 适用             |
+| ----------------------------------------- | -------------- |
+| `.cursor/rules/api-protocol-baseline.mdc` | Cursor         |
+| `.cursor/skills/game-api-sync/`（整目录）      | Cursor         |
+| `.github/copilot-instructions.md`         | GitHub Copilot |
+| `.github/skills/game-api-sync/`（整目录）      | GitHub Copilot |
+
+
+两套 Skill 内容同源，分别服务 Cursor 与 Copilot；复制后**无需**再改路径。
+
+### CI 写回飞书（可选但推荐）
+
+
+| 路径                                           | 说明                                                                                                                                                                                     |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.github/workflows/sync-feishu-api-docs.yml` | 从中央仓 [client 示例](.github/workflows/sync-feishu-api-docs.client.yml) 或 [server 示例](.github/workflows/sync-feishu-api-docs.server.yml) 复制到游戏仓并重命名；按需调整 `on.pull_request.paths` 以匹配本仓协议目录 |
+| GitHub Secret `**API_SYNC_TOKEN`**           | Settings → Secrets → Actions；与 ECS 服务同一 Token                                                                                                                                          |
+
+
+CI **不会**拷贝中央仓 `scripts/`：Workflow 合并时会 `checkout` `Pluto599/game-api-sync` 到 `_api-sync` 再执行 `scripts/ci/run_sync_job.py`。
+
+### 开发机可选
+
+
+| 路径                                    | 说明                                                                                       |
+| ------------------------------------- | ---------------------------------------------------------------------------------------- |
+| 中央仓克隆（任意目录）                           | 用法 4 调用 `agent_doc_draft.py`、`check_glob_for_align.py` 时需要 `<中央仓>` 路径                    |
+| `deploy/vscode-settings.example.json` | 可选：在 VS Code / Cursor 终端注入 `API_SYNC_BASE` / `API_SYNC_TOKEN`（Agent 仍会按 Skill 自动 export） |
+
+
+### 不要拷进游戏仓
+
+
+| 路径                      | 原因                                                 |
+| ----------------------- | -------------------------------------------------- |
+| `api-server/`、`deploy/` | 仅 ECS 部署                                           |
+| `scripts/`              | CI 运行时拉取；本地 IDE 通过中央仓路径调用                          |
+| `tests/`                | 中央仓单元测试                                            |
+| `docs/`                 | 非必须；格式要点已写在 Skill `references/doc-write-format.md` |
+
+
+### 同步后必做检查
+
+1. 打开 `config/wiki-registry.yaml`，按本仓目录修正 `**module_map`** 中的 glob（server 宜显式文件列表，勿含共享 `protocol.h` 全量）。
+2. 为各模块填写 `_status`（`draft` / `candidate` / `verified`），路径未定优先用**显式路径列表**。
+3. 飞书 Wiki 新增/调整模块时，从中央仓更新 `**modules`** 段并同步到 ECS（`modules` 与 glob 无关，三处宜一致）。
+4. 配置 CI Secret 后，用一次协议 PR 合并验证 Actions sync 是否正常。
+
+---
+
+## 三、`config/wiki-registry.yaml` 与 glob
 
 中央仓与 **client / server 游戏仓** 各有一份 `config/wiki-registry.yaml`。其中两类配置不要混用：
 
 
-| 区块           | 作用                                                      | 谁维护               |
-| ------------ | ------------------------------------------------------- | ----------------- |
-| `modules`    | 飞书叶子文档 `api_docs_obj` / `type_constraints_obj`（快照、写回草稿） | 与 Wiki 结构同步，三处宜一致 |
-| `module_map` | 本仓协议**代码路径** `client_glob` / `server_glob`              | **各游戏仓**按实际目录维护   |
+| 区块           | 作用                                                      | 谁维护                            |
+| ------------ | ------------------------------------------------------- | ------------------------------ |
+| `modules`    | 飞书叶子文档 `api_docs_obj` / `type_constraints_obj`（快照、写回草稿） | 与 Wiki 结构同步，中央仓 / ECS / 游戏仓宜一致 |
+| `module_map` | 本仓协议**代码路径** `client_glob` / `server_glob`              | **各游戏仓**按实际目录维护                |
 
 
 ### glob 是什么
@@ -149,20 +241,22 @@ module_map:
       - src/protocol/battle/battle_packet.h
   联机大厅:
     client_glob: "Assets/Scripts/**/*Room*.{cs}"
-    server_glob: "**/*room*/**/*.{h,hpp,cpp}"
+    server_glob:
+      - src/protocol/room/create_room.h
+      - src/handlers/room_handler.cpp
 ```
 
-项目未完成、路径不准时：**优先用显式路径列表**，不要用宽泛的 `*Battle`*（易扫到 UI、测试代码）。
+项目未完成、路径不准时：**优先用显式路径列表**，不要用宽泛的 `*Battle*`（易扫到 UI、测试代码）。
 
 ### Agent 怎么用 glob（对比 / 对齐）
 
-glob 是**默认范围**，不是唯一依据。Agent 须（详见 `.cursor/skills/game-api-sync/references/registry-globs.md`）：
+glob 是**默认范围**，不是唯一依据。Agent 须（详见 `.cursor/skills/game-api-sync/references/registry-globs.md` 或 `.github/skills/game-api-sync/references/registry-globs.md`）：
 
 1. 读取本仓 `module_map.<模块>.client_glob` 或 `server_glob` 并解析命中文件；
 2. **结合用户要求**（@ 文件、指定目录、排除项），优先级高于 glob；
 3. glob 命中 0 个或过多时，**自行列目录 / 搜索**消息名后再合并范围；
 4. 用户或 Agent 发现**不在 glob 中的协议文件**时，**更新**本仓 `wiki-registry.yaml`（同一变更内完成，勿只改代码不更新 registry）；
-5. **对比**时把最终文件全文放进 `POST /jobs/api-compare` 的 `files`（可不只靠 glob 自动收集）。
+5. **对比**时把最终文件全文放进 `POST /jobs/api-compare` 的 `files`（须含 `config/message_aliases.yaml`）。
 
 `_status: draft` 时：先列出将改动的文件清单，经确认后再改代码。
 
@@ -170,20 +264,18 @@ glob 是**默认范围**，不是唯一依据。Agent 须（详见 `.cursor/skil
 
 - **刷新快照 / 写回飞书**：只依赖 `modules.*_obj`，与 glob 无关。
 - **api-compare**：`files` 须含协议源文件 + `**config/message_aliases.yaml`**（游戏仓 alias；CI/本地优先读 cwd 下该文件，ECS 从 body 嵌入读取）；支持 scoped、`target` 分流。
-- ECS 上 `/opt/api-sync/config/wiki-registry.yaml` 的 `modules` 需与游戏仓一致；`module_map` 以**各游戏仓**为准。
-
-### 复制到 client/server 时
-
-从中央仓拷贝 `config/wiki-registry.yaml` 后，**务必**按本仓目录改好 `client_glob` / `server_glob`，并保留/填写 `_status`。不必复制中央仓整份 `docs/`，但建议同步 `.cursor/skills/game-api-sync/references/registry-globs.md`（或 Copilot/Junie 下的 `registry-globs.md`）。
+- ECS 上 `/opt/api-sync/config/wiki-registry.yaml` 的 `**modules**` 需与中央仓一致；`**module_map**` 以**各游戏仓**为准（ECS 不依赖游戏仓 glob）。
 
 ---
 
-## 三、权威飞书文档
+## 四、权威飞书文档
 
 - [接口文档](https://my.feishu.cn/wiki/NYw0wSFwji6j3skwW4ocIrkxn6b)
 - [类型约束](https://my.feishu.cn/wiki/CF6owdEKLiYhwmkBrMxcgxK8nde)
 
-## 四、管理员：ECS 部署
+---
+
+## 五、管理员：ECS 部署
 
 公网：`120.27.249.20`  
 仓库：`https://github.com/Pluto599/game-api-sync`
@@ -191,13 +283,10 @@ glob 是**默认范围**，不是唯一依据。Agent 须（详见 `.cursor/skil
 ```bash
 cd /tmp && rm -rf game-api-sync
 
-# 采用 git clone 方式同步仓库
+# git clone 或 Workbench 上传后解压
 git clone https://github.com/Pluto599/game-api-sync.git
-# 采用 Workbench 方式传输文件
-unzip -o game-api-sync.zip -d /tmp
-rm -rf game-api-sync.zip
+# unzip -o game-api-sync.zip -d /tmp
 
-# 启动服务
 bash /tmp/game-api-sync/deploy/install-to-ecs.sh /tmp/game-api-sync
 lark-cli auth login --recommend
 pip3 install -q pyyaml
@@ -205,7 +294,7 @@ python3 /opt/api-sync/scripts/refresh_all_snapshots.py
 bash /tmp/game-api-sync/deploy/setup-cron.sh
 ```
 
-*若公网 `POST /jobs/` 只返回 `api-sync ok`：** Nginx 里可能有 `return 200 'api-sync ok'` 占位，需改为反代 uvicorn：
+若公网 `POST /jobs/` 只返回 `api-sync ok`：Nginx 里可能有 `return 200 'api-sync ok'` 占位，需改为反代 uvicorn：
 
 ```bash
 sudo cp /tmp/game-api-sync/deploy/nginx-api-sync.conf /etc/nginx/sites-available/api-sync
@@ -218,11 +307,13 @@ sudo nginx -t && sudo systemctl reload nginx
 
 - **飞书 webhook**（可选）：开放平台 → 事件订阅 → `http://120.27.249.20/webhook/feishu`；文档更新后自动刷新 ECS 快照（无群通知）。
 
+`install-to-ecs.sh` 会同步到 ECS 的仅有：`config/wiki-registry.yaml`、`config/message_aliases.yaml`、`scripts/`、`api-server/main.py`——与游戏仓拷贝范围不同。
+
 ---
 
 ## 六、GitHub Actions 实现说明
 
-用法见 [§一·5. 合并到主分支后自动同步飞书文档](#5-合并到主分支后自动同步飞书文档github-actions)。
+用法见 [§一·5. PR 合并后自动同步飞书文档](#5-pr-合并后自动同步飞书文档github-actions)。
 
 中央仓提供可复用 Workflow `[.github/workflows/api-doc-sync-reusable.yml](.github/workflows/api-doc-sync-reusable.yml)`；游戏仓 thin workflow 见 [client 示例](.github/workflows/sync-feishu-api-docs.client.yml) / [server 示例](.github/workflows/sync-feishu-api-docs.server.yml)。
 
@@ -236,21 +327,3 @@ sudo nginx -t && sudo systemctl reload nginx
 脚本入口：`[scripts/ci/run_sync_job.py](scripts/ci/run_sync_job.py)`。CI 侧先用 **TTL（默认 6h）** 决定是否调用 refresh；ECS 收到 refresh 后还会做 `**revision_id` 比对**，未变则跳过全量拉取（响应 `skipped`）。IDE 默认每次对比/对齐前调用 refresh（同样 revision 比对；强制刷新传 `"force":true`）。
 
 相关配置：`[config/message_aliases.yaml](config/message_aliases.yaml)`、`[docs/feishu-doc-write-format.md](docs/feishu-doc-write-format.md)` §4.3（pre 英文类型名）。
-
-## 七、本仓库结构
-
-```text
-.cursor/rules/api-protocol-baseline.mdc
-.cursor/skills/game-api-sync/SKILL.md
-.cursor/skills/game-api-sync/references/（含 registry-globs.md：glob + 用户路径 + 更新 registry）
-.github/copilot-instructions.md
-.github/game-api-sync/
-.junie/guidelines.md
-.junie/game-api-sync/
-config/wiki-registry.yaml
-config/message_aliases.yaml
-scripts/（`agent_doc_draft.py`、`diff_api`、`code_to_docx`、`ci/`；单测见 tests/）
-.github/workflows/api-doc-sync-reusable.yml
-```
-
-三套 IDE 配置内容对齐：Cursor 用 **Rules + Skills**；VS Code 用 **copilot-instructions + game-api-sync/**；Rider 用 **guidelines + game-api-sync/**。
