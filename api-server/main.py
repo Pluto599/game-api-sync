@@ -27,6 +27,7 @@ from diff_api import compare_module_all_targets  # noqa: E402
 from compare_targets import scope_type_names_from_code  # noqa: E402
 from extract_code import extract_from_sources  # noqa: E402
 from doc_sync import sync_doc_draft  # noqa: E402
+from wiki_module_doc import sync_system_doc  # noqa: E402
 from registry_globs import load_registry, obj_token_to_modules  # noqa: E402
 from refresh_all_snapshots import refresh_snapshots  # noqa: E402
 
@@ -51,6 +52,14 @@ class DocSyncBody(BaseModel):
     files_changed: list[str] = []
     target: str = "api_docs"
     docx_draft: str | None = None
+
+
+class ModuleSystemDocSyncBody(BaseModel):
+    module: str
+    repo: str = "client"
+    mode: str = "delta"
+    files_changed: list[str] = []
+    docx_draft: str
 
 
 def _compare_from_cache(body: CompareBody) -> dict[str, Any]:
@@ -278,6 +287,31 @@ def api_doc_sync(
             files_changed=body.files_changed,
             target=body.target,
             docx_draft=body.docx_draft,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.post("/jobs/module-system-doc-sync")
+def module_system_doc_sync(
+    body: ModuleSystemDocSyncBody,
+    authorization: str | None = Header(None),
+) -> dict[str, Any]:
+    """Append module system-design DocxXML (creator lark-cli profile)."""
+    check_auth(authorization)
+    if not body.docx_draft.strip():
+        raise HTTPException(status_code=400, detail="docx_draft required")
+    mode = body.mode if body.mode in ("full", "delta") else "delta"
+    try:
+        return sync_system_doc(
+            REGISTRY,
+            module=body.module.strip(),
+            repo=body.repo,
+            docx_draft=body.docx_draft,
+            files_changed=body.files_changed,
+            mode=mode,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e

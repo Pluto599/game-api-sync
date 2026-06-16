@@ -4,6 +4,7 @@ public class PlayerReadyMsg
     public string uid;
 }
 
+/// <summary>请求进入战斗</summary>
 public class EnterBattleReq
 {
     public string roomId;

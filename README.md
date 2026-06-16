@@ -138,6 +138,21 @@ ECS 写入飞书正文（模式 A 插入 **h1 客户端/服务端** 分区末尾
 
 ---
 
+### 6. PR 合并后自动同步模块系统设计文档（GitHub Actions）
+
+**场景**：协议 PR 合并后，将**变更差量**写入飞书「模块系统设计」wiki（每模块一个子文档：概览、分层架构、功能/数据接口说明）。
+
+**你怎么做**：
+
+1. 游戏仓 workflow 增加 `module-system-doc` job（见中央仓 [client 示例](.github/workflows/sync-feishu-api-docs.client.yml)）。
+2. PR 合并且变更命中协议 glob → Actions 跑 `run_system_doc_job.py`。
+3. **新模块**首次会在 wiki 下建子页；Actions log 提示将 `system_design_obj` 写入 `wiki-registry.yaml`。
+4. 飞书搜索 **「CI生成，待审查」** 审阅后去掉标记。
+
+**与用法 5 的区别**：写 **模块系统设计** 子 wiki（ModuleDocBot），不是 api_docs 协议字段表（GameBot）。
+
+---
+
 ## 二、同步到游戏仓库的文件
 
 client / server 游戏仓**不需要** fork 或 submodule 整个中央仓。按需从中央仓拷贝下列文件，并在本仓维护 `module_map` 路径。

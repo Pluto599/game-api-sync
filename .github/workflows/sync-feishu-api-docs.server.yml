@@ -23,3 +23,13 @@ jobs:
       game_repo: server
       base_ref: ${{ github.event.pull_request.base.sha }}
       merge_commit_sha: ${{ github.event.pull_request.merge_commit_sha }}
+
+  module-system-doc:
+    if: github.event.pull_request.merged == true
+    uses: Pluto599/game-api-sync/.github/workflows/module-system-doc-reusable.yml@main
+    secrets:
+      API_SYNC_TOKEN: ${{ secrets.API_SYNC_TOKEN }}
+    with:
+      game_repo: server
+      base_ref: ${{ github.event.pull_request.base.sha }}
+      merge_commit_sha: ${{ github.event.pull_request.merge_commit_sha }}

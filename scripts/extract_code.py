@@ -255,6 +255,54 @@ def _parse_enum_members(body: str) -> list[dict[str, str]]:
     return members
 
 
+def _extract_csharp_summary_before(text: str, pos: int) -> str | None:
+    """XML doc /// <summary> immediately preceding pos."""
+    chunk = text[max(0, pos - 800) : pos]
+    m = re.search(
+        r"///\s*<summary>\s*(.*?)\s*</summary>",
+        chunk,
+        re.DOTALL | re.IGNORECASE,
+    )
+    if not m:
+        return None
+    return re.sub(r"\s+", " ", m.group(1).strip()) or None
+
+
+def _extract_cpp_comment_before(text: str, pos: int) -> str | None:
+    chunk = text[max(0, pos - 600) : pos]
+    m = re.search(r"/\*\*(.*?)\*/", chunk, re.DOTALL)
+    if m:
+        body = m.group(1)
+        lines = [
+            re.sub(r"^\s*\*\s?", "", ln).strip()
+            for ln in body.splitlines()
+            if ln.strip() and not ln.strip().startswith("@")
+        ]
+        if lines:
+            return " ".join(lines[:3])
+    lines = chunk.splitlines()
+    for ln in reversed(lines[-5:]):
+        ln = ln.strip()
+        if ln.startswith("//"):
+            return ln[2:].strip() or None
+    return None
+
+
+def extract_type_comment(text: str, type_name: str, *, path: str) -> str | None:
+    """Best-effort doc comment for a struct/class/enum/interface name."""
+    ext = _ext(path)
+    for m in re.finditer(rf"\b(?:class|struct|enum|interface)\s+{re.escape(type_name)}\b", text):
+        if ext == ".cs":
+            c = _extract_csharp_summary_before(text, m.start())
+        elif ext in (".h", ".hpp", ".cpp", ".c"):
+            c = _extract_cpp_comment_before(text, m.start())
+        else:
+            c = None
+        if c:
+            return c
+    return None
+
+
 def extract_from_sources(
     files: dict[str, str],
     *,

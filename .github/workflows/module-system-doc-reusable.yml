@@ -1,0 +1,59 @@
+name: Module System Doc Sync (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      game_repo:
+        description: client or server
+        required: true
+        type: string
+      base_ref:
+        description: PR base commit SHA (pre-merge main) for git diff
+        required: true
+        type: string
+      merge_commit_sha:
+        description: merge commit SHA on main after PR merged
+        required: true
+        type: string
+      orphan_policy:
+        description: warn or fail on orphan protocol files
+        required: false
+        type: string
+        default: warn
+    secrets:
+      API_SYNC_TOKEN:
+        required: true
+
+jobs:
+  module-system-doc-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.merge_commit_sha }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -q pyyaml
+
+      - name: Checkout game-api-sync scripts
+        uses: actions/checkout@v4
+        with:
+          repository: Pluto599/game-api-sync
+          path: _api-sync
+
+      - name: Run module system doc job
+        env:
+          API_SYNC_BASE: http://120.27.249.20
+          API_SYNC_TOKEN: ${{ secrets.API_SYNC_TOKEN }}
+          PYTHONPATH: ${{ github.workspace }}/_api-sync/scripts
+        run: |
+          python _api-sync/scripts/ci/run_system_doc_job.py \
+            --repo "${{ inputs.game_repo }}" \
+            --base-ref "${{ inputs.base_ref }}" \
+            --orphan-policy "${{ inputs.orphan_policy }}"

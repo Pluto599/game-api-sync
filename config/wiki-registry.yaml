@@ -10,33 +10,46 @@ roots:
     node_token: CF6owdEKLiYhwmkBrMxcgxK8nde
     title: 类型约束
     wiki_url: https://my.feishu.cn/wiki/CF6owdEKLiYhwmkBrMxcgxK8nde
+  - key: system_design
+    node_token: DBdywgROvi35hwkxhyecNmwDnVe
+    title: 模块系统设计
+    wiki_url: https://my.feishu.cn/wiki/DBdywgROvi35hwkxhyecNmwDnVe
 
 # 叶子文档 obj_token（用于 docs +fetch / snapshot）
+# system_design_obj — 模块系统设计子文档（CI 首次创建后人工写回 registry）
 modules:
   登录界面:
     api_docs_obj: Uknrd940iofmdZxwZufcaw4VngQ
     type_constraints_obj: null
+    system_design_obj: null
   开始界面:
     api_docs_obj: PJKudJjraoK6d6xRynPc5ls5nuf
     type_constraints_obj: null
+    system_design_obj: null
   联机大厅:
     api_docs_obj: PTfEdBOcRonxcaxVEO4cencun9b
     type_constraints_obj: LOHfdAtWxou0uYxcQJmciMIlnBc
+    system_design_obj: null
   地图:
     api_docs_obj: IOF8dYZ9so6PINxBUBzcOn6nnve
     type_constraints_obj: VKoydIqV5oa0ZlxOnYZcpoWtnJd
+    system_design_obj: null
   商店:
     api_docs_obj: DMPZdUSa7opes3xdgm1c5Zc0n9e
     type_constraints_obj: QJoAdzyc0oqZ1HxVil3cyqxGnsb
+    system_design_obj: null
   战斗:
     api_docs_obj: ZxhjdUHTnoceWpxEk5ScAzvgn07
     type_constraints_obj: OfEvdsEs3oC6vtxdEzac64msnNj
+    system_design_obj: null
   网络相关:
     api_docs_obj: null
     type_constraints_obj: TxeXdH4RioFJNUxTqMKcaHfPnvf
+    system_design_obj: null
   玩家存档:
     api_docs_obj: null
     type_constraints_obj: K6ZpdcD12obhbKxVj3RcdqOonZs
+    system_design_obj: null
 
 # 代码路径：client 用 glob；server 宜显式列表（勿含共享 protocol.h / server.h 全量）
 # 复制到 server 仓后按实际目录改路径；详见 config/message_aliases.yaml
