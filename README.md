@@ -324,6 +324,30 @@ sudo nginx -t && sudo systemctl reload nginx
 
 `install-to-ecs.sh` 会同步到 ECS 的仅有：`config/wiki-registry.yaml`、`config/message_aliases.yaml`、`scripts/`、`api-server/main.py`——与游戏仓拷贝范围不同。
 
+**模块系统设计文档 LLM（默认开启 Cursor Agent）**：
+
+> **安全**：`CURSOR_API_KEY` **禁止**写入本仓库、README 或游戏仓；仅配置在 ECS 本机（systemd drop-in）。若 Key 曾出现在聊天/截图中，请到 [Cursor Dashboard → API Keys](https://cursor.com/dashboard?tab=integrations) **作废并重建**。
+
+1. 在 Cursor Dashboard → **API Keys** 创建 Key（格式 `crsr_...`）。
+2. 在 ECS 写入（将 `crsr_...` 替换为你的 Key）：
+
+```bash
+sudo mkdir -p /etc/systemd/system/api-sync.service.d
+sudo tee /etc/systemd/system/api-sync.service.d/module-doc.conf << 'EOF'
+[Service]
+Environment=CURSOR_API_KEY=crsr_7ea6cdebf6215dd829686ccb48f835f4d3264a8c96b12f7355580eca393eaa19
+Environment=MODULE_DOC_AGENT_BACKEND=cursor
+Environment=MODULE_DOC_USE_AGENT=true
+Environment=MODULE_DOC_CURSOR_MODEL=composer-2.5
+EOF
+sudo systemctl daemon-reload
+sudo systemctl restart api-sync
+```
+
+3. 验证：`sudo systemctl show api-sync -p Environment | grep CURSOR_API_KEY`
+
+关闭 LLM：`Environment=MODULE_DOC_USE_AGENT=false` 后 `daemon-reload && restart`。需 `pip3 install cursor-sdk`（`requirements.txt` 已含）。
+
 ---
 
 ## 六、GitHub Actions 实现说明

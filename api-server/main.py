@@ -27,6 +27,11 @@ from diff_api import compare_module_all_targets  # noqa: E402
 from compare_targets import scope_type_names_from_code  # noqa: E402
 from extract_code import extract_from_sources  # noqa: E402
 from doc_sync import sync_doc_draft  # noqa: E402
+from build_system_doc import (  # noqa: E402
+    build_docx_xml,
+    build_module_doc_context,
+    resolve_mode,
+)
 from wiki_module_doc import sync_system_doc  # noqa: E402
 from registry_globs import load_registry, obj_token_to_modules  # noqa: E402
 from refresh_all_snapshots import refresh_snapshots  # noqa: E402
@@ -57,9 +62,10 @@ class DocSyncBody(BaseModel):
 class ModuleSystemDocSyncBody(BaseModel):
     module: str
     repo: str = "client"
-    mode: str = "delta"
+    mode: str = "auto"
     files_changed: list[str] = []
-    docx_draft: str
+    docx_draft: str | None = None
+    files: dict[str, str] | None = None
 
 
 def _compare_from_cache(body: CompareBody) -> dict[str, Any]:
@@ -299,20 +305,50 @@ def module_system_doc_sync(
     body: ModuleSystemDocSyncBody,
     authorization: str | None = Header(None),
 ) -> dict[str, Any]:
-    """Append module system-design DocxXML (creator lark-cli profile)."""
+    """Build (optional) and append module system-design DocxXML (creator lark-cli profile)."""
     check_auth(authorization)
-    if not body.docx_draft.strip():
-        raise HTTPException(status_code=400, detail="docx_draft required")
-    mode = body.mode if body.mode in ("full", "delta") else "delta"
-    try:
-        return sync_system_doc(
-            REGISTRY,
-            module=body.module.strip(),
+    has_draft = bool(body.docx_draft and body.docx_draft.strip())
+    has_files = bool(body.files)
+    if not has_draft and not has_files:
+        raise HTTPException(status_code=400, detail="docx_draft or files required")
+
+    reg = load_registry(REGISTRY)
+    module = body.module.strip()
+    mode = body.mode if body.mode in ("full", "delta") else resolve_mode(reg, module)
+    files_changed = body.files_changed or sorted((body.files or {}).keys())
+    docx = body.docx_draft or ""
+    context_summary: dict[str, Any] | None = None
+
+    if not has_draft and has_files:
+        ctx = build_module_doc_context(
+            module=module,
             repo=body.repo,
-            docx_draft=body.docx_draft,
-            files_changed=body.files_changed,
+            registry=reg,
+            repo_root=Path("/tmp"),
+            changed_paths=files_changed,
+            files=body.files or {},
             mode=mode,
         )
+        docx = build_docx_xml(ctx)
+        context_summary = {
+            "agent_used": ctx.get("agent_used"),
+            "agent_requested": ctx.get("agent_requested"),
+            "functional": len(ctx.get("functional_interfaces") or []),
+            "data": len(ctx.get("data_interfaces") or []),
+        }
+
+    try:
+        result = sync_system_doc(
+            REGISTRY,
+            module=module,
+            repo=body.repo,
+            docx_draft=docx,
+            files_changed=files_changed,
+            mode=mode,
+        )
+        if context_summary:
+            result["build"] = context_summary
+        return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except RuntimeError as e:

@@ -78,4 +78,5 @@ CI `run_system_doc_job.py` 组装并 POST：
 
 - `mode`：`full`（无 `system_design_obj` 时建 wiki 子页 + 全文）或 `delta`（仅 append 变更段）
 - ECS 使用 **creator** lark-cli profile（`MODULE_DOC_LARK_CLI_HOME`，默认 `/opt/api-sync/.lark-creator`）
+- **LLM 默认开启**：`MODULE_DOC_USE_AGENT=true`（设 `false` 关闭），`MODULE_DOC_AGENT_BACKEND=cursor`，需 `CURSOR_API_KEY`
 - 首次 `full` 响应含 `action_required`：人工写回 `modules.<名>.system_design_obj`

@@ -1,14 +1,11 @@
 #!/usr/bin/env python3
-"""Optional LLM blurbs for module system docs (Phase 2). MVP: heuristics only."""
+"""LLM blurbs for module system docs (default: Cursor Agent)."""
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
-import urllib.error
-import urllib.request
 from typing import Any
 
 _MAX_OVERVIEW_LEN = 120
@@ -59,32 +56,14 @@ def heuristic_delta_summary(context: dict[str, Any]) -> str:
     )[:200]
 
 
-def _cache_key(context: dict[str, Any]) -> str:
-    raw = json.dumps(context, sort_keys=True, ensure_ascii=False)
-    return hashlib.sha256(raw.encode()).hexdigest()
-
-
-def _call_ollama(prompt: str) -> str | None:
-    base = os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
-    model = os.environ.get("OLLAMA_MODEL", "qwen2.5:7b")
-    body = {
-        "model": model,
-        "prompt": prompt,
-        "stream": False,
-        "options": {"temperature": 0},
-    }
-    try:
-        req = urllib.request.Request(
-            f"{base}/api/generate",
-            data=json.dumps(body).encode(),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            data = json.loads(resp.read().decode())
-            return (data.get("response") or "").strip() or None
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError):
-        return None
+def agent_enabled() -> bool:
+    """Default on; set MODULE_DOC_USE_AGENT=false to disable."""
+    return os.environ.get("MODULE_DOC_USE_AGENT", "true").lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
 
 
 def _validate_agent_json(raw: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
@@ -94,6 +73,9 @@ def _validate_agent_json(raw: dict[str, Any], context: dict[str, Any]) -> dict[s
     paras = raw.get("overview_paragraphs")
     if isinstance(paras, list):
         out["overview_paragraphs"] = [str(p)[:_MAX_OVERVIEW_LEN] for p in paras[:3]]
+    delta = raw.get("delta_summary")
+    if isinstance(delta, str) and delta.strip():
+        out["delta_summary"] = delta.strip()[:200]
     blurbs = raw.get("interface_blurbs")
     if isinstance(blurbs, dict):
         out["interface_blurbs"] = {
@@ -111,17 +93,108 @@ def _validate_agent_json(raw: dict[str, Any], context: dict[str, Any]) -> dict[s
 
 
 def need_agent(context: dict[str, Any]) -> bool:
-    if os.environ.get("MODULE_DOC_USE_AGENT", "").lower() not in ("1", "true", "yes"):
+    if not agent_enabled():
         return False
-    mode = context.get("mode")
-    notes = (context.get("registry_notes") or "").strip()
     ifaces = context.get("functional_interfaces") or []
     data = context.get("data_interfaces") or []
-    if mode == "full" and not notes:
-        return True
-    if any(not (i.get("source_comment") or "").strip() for i in ifaces + data):
-        return True
-    return False
+    layers = context.get("layers") or []
+    mode = context.get("mode")
+    if mode == "full":
+        return bool(ifaces or data or layers)
+    if mode == "delta":
+        return bool(ifaces or data)
+    return bool(ifaces or data)
+
+
+def _call_ollama(prompt: str) -> str | None:
+    import urllib.error
+    import urllib.request
+
+    base = os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
+    model = os.environ.get("OLLAMA_MODEL", "qwen2.5:7b")
+    body = {
+        "model": model,
+        "prompt": prompt,
+        "stream": False,
+        "options": {"temperature": 0},
+    }
+    try:
+        req = urllib.request.Request(
+            f"{base}/api/generate",
+            data=json.dumps(body).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            data = json.loads(resp.read().decode())
+            return (data.get("response") or "").strip() or None
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError):
+        return None
+
+
+def _call_cursor(prompt: str) -> str | None:
+    api_key = os.environ.get("CURSOR_API_KEY", "").strip()
+    if not api_key:
+        return None
+    try:
+        from cursor_sdk import Agent, AgentOptions
+    except ImportError:
+        return None
+    model = os.environ.get("MODULE_DOC_CURSOR_MODEL", "composer-2.5")
+    try:
+        result = Agent.prompt(prompt, AgentOptions(api_key=api_key, model=model))
+        text = getattr(result, "result", None) or ""
+        return str(text).strip() or None
+    except Exception:
+        return None
+
+
+def _build_prompt(context: dict[str, Any]) -> str:
+    compact = {
+        k: context[k]
+        for k in (
+            "module",
+            "repo",
+            "mode",
+            "functional_interfaces",
+            "data_interfaces",
+            "layers",
+            "registry_notes",
+            "changed_paths",
+        )
+        if k in context
+    }
+    delta_hint = ""
+    if context.get("mode") == "delta":
+        delta_hint = '含 "delta_summary":"本次PR变更一句话", '
+    return (
+        "你是游戏模块文档助手。仅返回 JSON，不要 markdown 代码块。"
+        f'格式: {{{delta_hint}"overview_paragraphs":["..."], "layer_roles":{{"层名":"..."}}, '
+        '"interface_blurbs":{"接口名":"一句功能说明"}}}。'
+        "overview 每段不超过120字；interface_blurbs 每条不超过80字。"
+        "不得编造 context 中不存在的接口名或层名。\n"
+        + json.dumps(compact, ensure_ascii=False)[:4000]
+    )
+
+
+def _invoke_llm(prompt: str) -> str | None:
+    backend = os.environ.get("MODULE_DOC_AGENT_BACKEND", "cursor").lower()
+    if backend == "ollama":
+        return _call_ollama(prompt)
+    if backend == "cursor":
+        return _call_cursor(prompt)
+    return None
+
+
+def _parse_agent_json(raw_text: str, context: dict[str, Any]) -> dict[str, Any]:
+    try:
+        start = raw_text.find("{")
+        end = raw_text.rfind("}") + 1
+        if start >= 0 and end > start:
+            return _validate_agent_json(json.loads(raw_text[start:end]), context)
+    except json.JSONDecodeError:
+        pass
+    return {}
 
 
 def enrich_context(context: dict[str, Any]) -> dict[str, Any]:
@@ -151,40 +224,9 @@ def enrich_context(context: dict[str, Any]) -> dict[str, Any]:
 
     agent_data: dict[str, Any] = {}
     if need_agent(context):
-        compact = {
-            k: context[k]
-            for k in (
-                "module",
-                "repo",
-                "mode",
-                "functional_interfaces",
-                "data_interfaces",
-                "layers",
-                "registry_notes",
-            )
-            if k in context
-        }
-        prompt = (
-            "你是游戏模块文档助手。仅返回 JSON，不要 markdown。"
-            '格式: {"overview_paragraphs":["..."], "layer_roles":{"层名":"..."}, '
-            '"interface_blurbs":{"接口名":"..."}}。'
-            "每条 interface_blurbs 不超过80字。不得编造 context 中不存在的接口名。\n"
-            + json.dumps(compact, ensure_ascii=False)[:4000]
-        )
-        backend = os.environ.get("MODULE_DOC_AGENT_BACKEND", "ollama")
-        raw_text: str | None = None
-        if backend == "ollama":
-            raw_text = _call_ollama(prompt)
+        raw_text = _invoke_llm(_build_prompt(context))
         if raw_text:
-            try:
-                start = raw_text.find("{")
-                end = raw_text.rfind("}") + 1
-                if start >= 0 and end > start:
-                    agent_data = _validate_agent_json(
-                        json.loads(raw_text[start:end]), context
-                    )
-            except json.JSONDecodeError:
-                agent_data = {}
+            agent_data = _parse_agent_json(raw_text, context)
 
     if context.get("mode") == "delta":
         result["delta_summary"] = agent_data.get("delta_summary") or heuristic_delta_summary(
@@ -202,9 +244,10 @@ def enrich_context(context: dict[str, Any]) -> dict[str, Any]:
             layer["role"] = overrides[layer["name"]]
 
     for name, blurb in (agent_data.get("interface_blurbs") or {}).items():
-        if name in blurbs and blurbs[name].endswith("待核对）"):
+        if name in blurbs:
             blurbs[name] = blurb
 
     result["interface_blurbs"] = blurbs
     result["agent_used"] = bool(agent_data)
+    result["agent_requested"] = need_agent(context)
     return result

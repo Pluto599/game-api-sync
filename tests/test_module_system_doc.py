@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -15,7 +16,7 @@ from build_system_doc import (
 )
 from extract_code import extract_type_comment
 from module_doc_layers import infer_module_layers
-from module_doc_agent import heuristic_interface_blurb, need_agent
+from module_doc_agent import agent_enabled, heuristic_interface_blurb, need_agent
 
 
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "battle_client.cs"
@@ -107,8 +108,31 @@ class TestModuleDocAgent(unittest.TestCase):
         blurb = heuristic_interface_blurb("EnterBattle", ["roomId"], repo="client")
         self.assertIn("Enter Battle", blurb)
 
-    def test_need_agent_off_by_default(self) -> None:
-        self.assertFalse(need_agent({"mode": "full", "functional_interfaces": []}))
+    def test_need_agent_on_by_default(self) -> None:
+        old = os.environ.pop("MODULE_DOC_USE_AGENT", None)
+        try:
+            ctx = {
+                "mode": "full",
+                "functional_interfaces": [{"name": "EnterBattle"}],
+                "data_interfaces": [],
+                "layers": [],
+            }
+            self.assertTrue(agent_enabled())
+            self.assertTrue(need_agent(ctx))
+        finally:
+            if old is not None:
+                os.environ["MODULE_DOC_USE_AGENT"] = old
+
+    def test_need_agent_off_when_disabled(self) -> None:
+        old = os.environ.get("MODULE_DOC_USE_AGENT")
+        os.environ["MODULE_DOC_USE_AGENT"] = "false"
+        try:
+            self.assertFalse(need_agent({"mode": "full", "functional_interfaces": [{"name": "X"}]}))
+        finally:
+            if old is None:
+                os.environ.pop("MODULE_DOC_USE_AGENT", None)
+            else:
+                os.environ["MODULE_DOC_USE_AGENT"] = old
 
 
 class TestLarkCliEnv(unittest.TestCase):

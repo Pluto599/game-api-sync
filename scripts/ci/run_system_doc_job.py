@@ -16,8 +16,6 @@ SCRIPT_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPT_DIR))
 
 from build_system_doc import (  # noqa: E402
-    build_docx_xml,
-    build_module_doc_context,
     resolve_mode,
     system_doc_fingerprint,
 )
@@ -88,25 +86,12 @@ def run_module(
         return {"module": module, "skipped": True, "reason": "fingerprint_unchanged"}
 
     mode = resolve_mode(registry, module)
-    context = build_module_doc_context(
-        module=module,
-        repo=repo,
-        registry=registry,
-        repo_root=repo_root,
-        changed_paths=changed_norm,
-        files=files,
-        mode=mode,
-    )
-    docx = build_docx_xml(context)
-    if not docx.strip():
-        return {"module": module, "skipped": True, "reason": "empty_docx"}
-
     sync_body = {
         "module": module,
         "repo": repo,
         "mode": mode,
         "files_changed": changed_norm,
-        "docx_draft": docx,
+        "files": files,
     }
     sync_result = _api("POST", "/jobs/module-system-doc-sync", sync_body)
 
@@ -117,14 +102,16 @@ def run_module(
     }
     write_state(state_path, state)
 
+    build_info = sync_result.get("build") or {}
     return {
         "module": module,
         "mode": mode,
         "fingerprint": fp,
         "sync": sync_result,
         "context_summary": {
-            "functional": len(context.get("functional_interfaces") or []),
-            "data": len(context.get("data_interfaces") or []),
+            "functional": build_info.get("functional", 0),
+            "data": build_info.get("data", 0),
+            "agent_used": build_info.get("agent_used"),
         },
     }
 
