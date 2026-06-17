@@ -216,18 +216,20 @@ def _interface_lists(context: dict[str, Any]) -> tuple[str, str]:
 def build_initial_docx(context: dict[str, Any]) -> str:
     """Full skeleton for a new/empty sub-doc (no document h1 — wiki title is the module name)."""
     func_xml, data_xml = _interface_lists(context)
+    layers = _layers_body(context, only_changed=False)
     parts: list[str] = [
         f"<h2>{SECTION_OVERVIEW}</h2>",
         _overview_body(context, include_repo=True),
         f"<h2>{SECTION_LAYERS}</h2>",
-        _layers_body(context, only_changed=False) or _dated_heading(context) + "<p>（暂无分层信息）</p>",
-        f"<h2>{SECTION_FUNC}</h2>",
-        _dated_heading(context),
-        func_xml or "<p>（无）</p>",
-        f"<h2>{SECTION_DATA}</h2>",
-        _dated_heading(context),
-        data_xml or "<p>（无）</p>",
     ]
+    if layers:
+        parts.append(layers)
+    parts.append(f"<h2>{SECTION_FUNC}</h2>")
+    if func_xml:
+        parts.append(_dated_heading(context) + func_xml)
+    parts.append(f"<h2>{SECTION_DATA}</h2>")
+    if data_xml:
+        parts.append(_dated_heading(context) + data_xml)
     return "".join(parts)
 
 

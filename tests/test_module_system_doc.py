@@ -101,6 +101,25 @@ class TestBuildSystemDoc(unittest.TestCase):
         self.assertIn("更新", xml)
         self.assertIn("EnterBattleReq", xml)
         self.assertNotIn("CI生成", xml)
+        self.assertNotIn("（无）", xml)
+
+    def test_full_docx_empty_data_section_heading_only(self) -> None:
+        ctx = build_module_doc_context(
+            module="战斗",
+            repo="client",
+            registry=self.registry,
+            repo_root=Path(tempfile.gettempdir()),
+            changed_paths=["Assets/Scripts/Battle/EnterBattle.cs"],
+            files=self.files,
+            mode="full",
+        )
+        ctx["data_interfaces"] = []
+        xml = build_initial_docx(ctx)
+        self.assertIn("<h2>数据接口</h2>", xml)
+        self.assertNotIn("（无）", xml)
+        idx = xml.index("<h2>数据接口</h2>")
+        tail = xml[idx + len("<h2>数据接口</h2>") :]
+        self.assertFalse(tail.startswith("<h3>"), msg="empty data section should have no dated block")
 
     def test_delta_section_updates(self) -> None:
         ctx = build_module_doc_context(
