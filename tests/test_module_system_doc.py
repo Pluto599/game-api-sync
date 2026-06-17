@@ -63,8 +63,8 @@ class TestBuildSystemDoc(unittest.TestCase):
     def test_format_update_date(self) -> None:
         from datetime import datetime, timezone
 
-        label = format_update_date(datetime(2026, 6, 16, tzinfo=timezone.utc))
-        self.assertEqual(label, "2026-6-16 更新")
+        label = format_update_date(datetime(2026, 6, 16, 19, 5, tzinfo=timezone.utc))
+        self.assertEqual(label, "2026-6-16 19:05 更新")
 
     def test_resolve_mode_full_when_no_token(self) -> None:
         self.assertEqual(resolve_mode(self.registry, "战斗"), "full")
@@ -108,6 +108,24 @@ class TestBuildSystemDoc(unittest.TestCase):
         self.assertIn("模块概览", updates)
         self.assertIn("EnterBattleReq", updates.get("功能接口", ""))
         self.assertNotIn("变更说明", "".join(updates.values()))
+        self.assertNotIn("客户端→服务端", updates.get("功能接口", ""))
+
+    def test_delta_skips_empty_layers_section(self) -> None:
+        ctx = build_module_doc_context(
+            module="战斗",
+            repo="client",
+            registry=self.registry,
+            repo_root=Path(tempfile.gettempdir()),
+            changed_paths=["Assets/Scripts/Battle/EnterBattle.cs"],
+            files=self.files,
+            mode="delta",
+        )
+        ctx["changed_layers"] = []
+        ctx["functional_interfaces"] = []
+        ctx["data_interfaces"] = []
+        updates = build_section_updates(ctx)
+        self.assertNotIn("分层架构", updates)
+        self.assertEqual(updates, {})
 
 
 class TestModuleDocPlacement(unittest.TestCase):

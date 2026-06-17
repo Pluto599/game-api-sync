@@ -343,6 +343,21 @@ def module_system_doc_sync(
             initial_docx = build_initial_docx(ctx)
         else:
             section_updates = build_section_updates(ctx)
+            if not section_updates:
+                return {
+                    "module": module,
+                    "repo": body.repo,
+                    "mode": mode,
+                    "skipped": True,
+                    "reason": "no_section_updates",
+                    "build": {
+                        "agent_used": ctx.get("agent_used"),
+                        "agent_requested": ctx.get("agent_requested"),
+                        "functional": len(ctx.get("functional_interfaces") or []),
+                        "data": len(ctx.get("data_interfaces") or []),
+                        "sections": [],
+                    },
+                }
         context_summary = {
             "agent_used": ctx.get("agent_used"),
             "agent_requested": ctx.get("agent_requested"),

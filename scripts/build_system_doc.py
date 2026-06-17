@@ -28,9 +28,9 @@ _DIRECTION_LABEL = {
 
 
 def format_update_date(when: datetime | None = None) -> str:
-    """e.g. 2026-6-16 更新 (no zero-padding on month/day)."""
+    """e.g. 2026-6-17 19:45 更新 (month/day unpadded; time UTC)."""
     dt = when or datetime.now(timezone.utc)
-    return f"{dt.year}-{dt.month}-{dt.day} 更新"
+    return f"{dt.year}-{dt.month}-{dt.day} {dt.hour}:{dt.minute:02d} 更新"
 
 
 def system_doc_fingerprint(files: dict[str, str], repo: str) -> str:
@@ -202,10 +202,7 @@ def _interface_lists(context: dict[str, Any]) -> tuple[str, str]:
     for iface in context.get("functional_interfaces") or []:
         name = iface["name"]
         blurb = blurbs.get(name) or iface.get("source_comment") or name
-        direction = iface.get("direction") or ""
-        func_items.append(
-            f"<li><b>{_esc(name)}</b>（{_esc(direction)}）：{_esc(blurb)}</li>"
-        )
+        func_items.append(f"<li><b>{_esc(name)}</b>：{_esc(blurb)}</li>")
     data_items: list[str] = []
     for item in context.get("data_interfaces") or []:
         name = item["name"]
@@ -235,9 +232,11 @@ def build_initial_docx(context: dict[str, Any]) -> str:
 
 
 def build_section_updates(context: dict[str, Any]) -> dict[str, str]:
-    """Dated fragments to insert under each h2 section (delta mode)."""
+    """Dated fragments to insert under each h2 section (delta mode). Omit empty sections."""
     updates: dict[str, str] = {}
-    updates[SECTION_OVERVIEW] = _overview_body(context, include_repo=False)
+    func_n = len(context.get("functional_interfaces") or [])
+    data_n = len(context.get("data_interfaces") or [])
+    has_layer_delta = bool(context.get("changed_layers"))
 
     layers = _layers_body(context, only_changed=True)
     if layers:
@@ -248,6 +247,10 @@ def build_section_updates(context: dict[str, Any]) -> dict[str, str]:
         updates[SECTION_FUNC] = _dated_heading(context) + func_xml
     if data_xml:
         updates[SECTION_DATA] = _dated_heading(context) + data_xml
+
+    if func_n or data_n or has_layer_delta:
+        updates[SECTION_OVERVIEW] = _overview_body(context, include_repo=False)
+
     return updates
 
 

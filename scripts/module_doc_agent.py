@@ -20,11 +20,10 @@ def _camel_to_words(name: str) -> str:
 
 def heuristic_interface_blurb(name: str, fields: list[str], *, repo: str) -> str:
     words = _camel_to_words(name)
-    dir_label = "客户端→服务端" if repo == "client" else "服务端→客户端"
     if fields:
         fs = ", ".join(fields[:4])
-        return f"{words}，字段含 {fs}（{dir_label}，自动生成，待核对）"[: _MAX_BLURB_LEN]
-    return f"{words}（{dir_label}，自动生成，待核对）"[: _MAX_BLURB_LEN]
+        return f"{words}，字段含 {fs}（自动生成，待核对）"[: _MAX_BLURB_LEN]
+    return f"{words}（自动生成，待核对）"[: _MAX_BLURB_LEN]
 
 
 def heuristic_overview_paragraphs(context: dict[str, Any]) -> list[str]:
