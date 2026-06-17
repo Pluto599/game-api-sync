@@ -246,6 +246,13 @@ class TestModuleDocAgent(unittest.TestCase):
     def test_heuristic_blurb(self) -> None:
         blurb = heuristic_interface_blurb("EnterBattle", ["roomId"], repo="client")
         self.assertIn("Enter Battle", blurb)
+        self.assertNotIn("自动生成", blurb)
+        self.assertNotIn("待核对", blurb)
+
+    def test_sanitize_blurb_strips_placeholder(self) -> None:
+        from module_doc_agent import _sanitize_blurb
+
+        self.assertEqual(_sanitize_blurb("打开商店（自动生成，待核对）"), "打开商店")
 
     def test_need_agent_on_by_default(self) -> None:
         old = os.environ.pop("MODULE_DOC_USE_AGENT", None)

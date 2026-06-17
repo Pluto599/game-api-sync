@@ -12,6 +12,21 @@ _MAX_OVERVIEW_LEN = 120
 _MAX_ROLE_LEN = 60
 _MAX_BLURB_LEN = 80
 
+_FORBIDDEN_BLURB_MARKERS = (
+    "（自动生成，待核对）",
+    "自动生成，待核对",
+    "（待核对）",
+    "待核对",
+)
+
+
+def _sanitize_blurb(text: str) -> str:
+    s = (text or "").strip()
+    for marker in _FORBIDDEN_BLURB_MARKERS:
+        s = s.replace(marker, "")
+    s = re.sub(r"[（(]\s*[）)]", "", s)
+    return re.sub(r"\s+", " ", s).strip(" ，,;；")
+
 
 def _camel_to_words(name: str) -> str:
     parts = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", name).replace("_", " ")
@@ -22,8 +37,8 @@ def heuristic_interface_blurb(name: str, fields: list[str], *, repo: str) -> str
     words = _camel_to_words(name)
     if fields:
         fs = ", ".join(fields[:4])
-        return f"{words}，字段含 {fs}（自动生成，待核对）"[: _MAX_BLURB_LEN]
-    return f"{words}（自动生成，待核对）"[: _MAX_BLURB_LEN]
+        return f"{words}，字段含 {fs}"[: _MAX_BLURB_LEN]
+    return words[: _MAX_BLURB_LEN]
 
 
 def heuristic_overview_paragraphs(context: dict[str, Any]) -> list[str]:
@@ -78,9 +93,9 @@ def _validate_agent_json(raw: dict[str, Any], context: dict[str, Any]) -> dict[s
     blurbs = raw.get("interface_blurbs")
     if isinstance(blurbs, dict):
         out["interface_blurbs"] = {
-            k: str(v)[:_MAX_BLURB_LEN]
+            k: _sanitize_blurb(str(v))[:_MAX_BLURB_LEN]
             for k, v in blurbs.items()
-            if k in allowed_ifaces
+            if k in allowed_ifaces and _sanitize_blurb(str(v))
         }
     roles = raw.get("layer_roles")
     if isinstance(roles, dict):
@@ -171,6 +186,7 @@ def _build_prompt(context: dict[str, Any]) -> str:
         f'格式: {{{delta_hint}"overview_paragraphs":["..."], "layer_roles":{{"层名":"..."}}, '
         '"interface_blurbs":{"接口名":"一句功能说明"}}}。'
         "overview 每段不超过120字；interface_blurbs 每条不超过80字。"
+        "interface_blurbs 写自然中文功能说明，禁止「自动生成」「待核对」等占位语。"
         "不得编造 context 中不存在的接口名或层名。\n"
         + json.dumps(compact, ensure_ascii=False)[:4000]
     )
@@ -244,7 +260,10 @@ def enrich_context(context: dict[str, Any]) -> dict[str, Any]:
 
     for name, blurb in (agent_data.get("interface_blurbs") or {}).items():
         if name in blurbs:
-            blurbs[name] = blurb
+            blurbs[name] = _sanitize_blurb(blurb)
+
+    for name in list(blurbs.keys()):
+        blurbs[name] = _sanitize_blurb(blurbs[name])
 
     result["interface_blurbs"] = blurbs
     result["agent_used"] = bool(agent_data)
