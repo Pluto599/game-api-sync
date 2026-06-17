@@ -110,7 +110,7 @@ def run_module(
 
     state[module] = {
         "fingerprint": fp,
-        "mode": mode,
+        "mode": sync_result.get("mode"),
         "system_design_obj": sync_result.get("system_design_obj"),
     }
     write_state(state_path, state)

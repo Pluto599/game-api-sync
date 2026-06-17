@@ -69,10 +69,13 @@ class TestBuildSystemDoc(unittest.TestCase):
         self.assertEqual(fp1, fp2)
 
     def test_format_update_date(self) -> None:
-        from datetime import datetime, timezone
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
 
-        label = format_update_date(datetime(2026, 6, 16, 19, 5, tzinfo=timezone.utc))
-        self.assertEqual(label, "2026-6-16 19:05 更新")
+        label = format_update_date(
+            datetime(2026, 6, 16, 23, 50, tzinfo=ZoneInfo("Asia/Shanghai"))
+        )
+        self.assertEqual(label, "2026-6-16 23:50 更新")
 
     def test_resolve_mode_full_when_no_token(self) -> None:
         self.assertEqual(resolve_mode(self.registry, "战斗"), "full")

@@ -6,9 +6,11 @@ from __future__ import annotations
 import hashlib
 import html
 import json
-from datetime import datetime, timezone
+import os
+from datetime import datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from extract_code import extract_from_sources, extract_type_comment
 from module_doc_agent import enrich_context
@@ -27,9 +29,12 @@ _DIRECTION_LABEL = {
 }
 
 
+_DOC_TZ = ZoneInfo(os.environ.get("MODULE_DOC_TIMEZONE", "Asia/Shanghai"))
+
+
 def format_update_date(when: datetime | None = None) -> str:
-    """e.g. 2026-6-17 19:45 更新 (month/day unpadded; time UTC)."""
-    dt = when or datetime.now(timezone.utc)
+    """e.g. 2026-6-17 23:50 更新 (Asia/Shanghai by default)."""
+    dt = when or datetime.now(_DOC_TZ)
     return f"{dt.year}-{dt.month}-{dt.day} {dt.hour}:{dt.minute:02d} 更新"
 
 

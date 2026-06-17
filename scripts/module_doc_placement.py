@@ -222,7 +222,24 @@ def update_system_design_doc(
         content = (initial_docx or "").strip()
         if not content:
             raise ValueError("initial_docx required for full mode")
-        return _run_update(doc_token, command="append", content=content)
+        if system_design_doc_is_empty(doc_token):
+            try:
+                outline = fetch_doc_content(doc_token, scope="outline")
+                first_id = _BLOCK_ID.search(outline)
+                if first_id:
+                    r = _run_update(
+                        doc_token,
+                        command="block_replace",
+                        content=content,
+                        block_id=first_id.group(1),
+                    )
+                    r["write_mode"] = "block_replace_leading_empty"
+                    return r
+            except (RuntimeError, json.JSONDecodeError, OSError):
+                pass
+        r = _run_update(doc_token, command="append", content=content)
+        r["write_mode"] = "append"
+        return r
 
     updates = section_updates or {}
     if not updates:
