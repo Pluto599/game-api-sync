@@ -245,13 +245,39 @@ class TestModuleDocLayers(unittest.TestCase):
 class TestModuleDocAgent(unittest.TestCase):
     def test_heuristic_blurb(self) -> None:
         blurb = heuristic_interface_blurb("EnterBattle", ["roomId"], repo="client")
-        self.assertIn("Enter Battle", blurb)
+        self.assertIn("进入", blurb)
+        self.assertIn("战斗", blurb)
         self.assertNotIn("自动生成", blurb)
         self.assertNotIn("待核对", blurb)
+        self.assertNotIn("字段含", blurb)
+
+    def test_heuristic_blurb_room_examples(self) -> None:
+        blurb = heuristic_interface_blurb(
+            "SetReadyStatusRequest", ["uid", "ready"], repo="client"
+        )
+        self.assertIn("设置", blurb)
+        self.assertIn("准备", blurb)
+        self.assertIn("请求", blurb)
+        self.assertNotIn("Set Ready", blurb)
+        self.assertNotIn("自动生成", blurb)
+
+        blurb = heuristic_interface_blurb(
+            "BroadcastRoomStatusResponse", ["roomInfo"], repo="server"
+        )
+        self.assertIn("广播", blurb)
+        self.assertIn("响应", blurb)
+        self.assertIn("roomInfo", blurb)
+        self.assertNotIn("Broadcast Room", blurb)
 
     def test_sanitize_blurb_strips_placeholder(self) -> None:
         from module_doc_agent import _sanitize_blurb
 
+        self.assertEqual(
+            _sanitize_blurb(
+                "Set Ready Status Request，字段含 uid, ready（自动生成，待核对）"
+            ),
+            "Set Ready Status Request，字段含 uid, ready",
+        )
         self.assertEqual(_sanitize_blurb("打开商店（自动生成，待核对）"), "打开商店")
 
     def test_need_agent_on_by_default(self) -> None:

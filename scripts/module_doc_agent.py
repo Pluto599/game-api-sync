@@ -19,6 +19,77 @@ _FORBIDDEN_BLURB_MARKERS = (
     "待核对",
 )
 
+_NAME_SUFFIX_ZH = (
+    ("Notification", "通知"),
+    ("Message", "消息"),
+    ("Request", "请求"),
+    ("Response", "响应"),
+    ("Notify", "通知"),
+    ("Req", "请求"),
+    ("Rsp", "响应"),
+    ("Ntf", "通知"),
+    ("Msg", "消息"),
+    ("Res", "响应"),
+)
+
+_TERM_ZH = {
+    "add": "添加",
+    "apply": "应用",
+    "battle": "战斗",
+    "broadcast": "广播",
+    "buy": "购买",
+    "cancel": "取消",
+    "change": "变更",
+    "chat": "聊天",
+    "close": "关闭",
+    "confirm": "确认",
+    "create": "创建",
+    "delete": "删除",
+    "enter": "进入",
+    "exit": "退出",
+    "game": "游戏",
+    "get": "获取",
+    "info": "信息",
+    "invite": "邀请",
+    "item": "道具",
+    "join": "加入",
+    "kick": "踢出",
+    "leave": "离开",
+    "level": "等级",
+    "list": "列表",
+    "load": "加载",
+    "login": "登录",
+    "logout": "登出",
+    "match": "匹配",
+    "move": "移动",
+    "notify": "通知",
+    "open": "打开",
+    "player": "玩家",
+    "query": "查询",
+    "rank": "排行",
+    "ready": "准备",
+    "refresh": "刷新",
+    "remove": "移除",
+    "result": "结果",
+    "reward": "奖励",
+    "room": "房间",
+    "save": "保存",
+    "score": "分数",
+    "search": "搜索",
+    "select": "选择",
+    "sell": "出售",
+    "send": "发送",
+    "set": "设置",
+    "shop": "商店",
+    "start": "开始",
+    "status": "状态",
+    "stop": "停止",
+    "sync": "同步",
+    "team": "队伍",
+    "update": "更新",
+    "user": "用户",
+}
+
 
 def _sanitize_blurb(text: str) -> str:
     s = (text or "").strip()
@@ -28,17 +99,42 @@ def _sanitize_blurb(text: str) -> str:
     return re.sub(r"\s+", " ", s).strip(" ，,;；")
 
 
-def _camel_to_words(name: str) -> str:
-    parts = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", name).replace("_", " ")
-    return parts.strip()
+def _split_camel(name: str) -> list[str]:
+    parts = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", name).replace("_", " ").split()
+    return [p.lower() for p in parts if p]
+
+
+def _name_to_chinese_label(name: str) -> str:
+    suffix_cn = ""
+    base = name
+    for suf, cn in _NAME_SUFFIX_ZH:
+        if name.endswith(suf) and len(name) > len(suf):
+            base = name[: -len(suf)]
+            suffix_cn = cn
+            break
+    zh_parts = [_TERM_ZH.get(p, p) for p in _split_camel(base)]
+    phrase = "".join(zh_parts) if zh_parts else base
+    return f"{phrase}{suffix_cn}" if suffix_cn else phrase
+
+
+def _iface_source_comment(context: dict[str, Any], name: str) -> str:
+    for iface in context.get("functional_interfaces") or []:
+        if iface.get("name") == name:
+            return (iface.get("source_comment") or "").strip()
+    for item in context.get("data_interfaces") or []:
+        if item.get("name") == name:
+            return (item.get("source_comment") or "").strip()
+    return ""
 
 
 def heuristic_interface_blurb(name: str, fields: list[str], *, repo: str) -> str:
-    words = _camel_to_words(name)
+    label = _name_to_chinese_label(name)
     if fields:
-        fs = ", ".join(fields[:4])
-        return f"{words}，字段含 {fs}"[: _MAX_BLURB_LEN]
-    return words[: _MAX_BLURB_LEN]
+        fs = "、".join(fields[:4])
+        if label.endswith("响应"):
+            return f"{label}，返回 {fs}"[: _MAX_BLURB_LEN]
+        return f"{label}，含 {fs}"[: _MAX_BLURB_LEN]
+    return label[: _MAX_BLURB_LEN]
 
 
 def heuristic_overview_paragraphs(context: dict[str, Any]) -> list[str]:
@@ -178,15 +274,29 @@ def _build_prompt(context: dict[str, Any]) -> str:
         )
         if k in context
     }
+    needs_blurb = [
+        i["name"]
+        for i in (context.get("functional_interfaces") or [])
+        + (context.get("data_interfaces") or [])
+        if not (i.get("source_comment") or "").strip()
+    ]
     delta_hint = ""
     if context.get("mode") == "delta":
         delta_hint = '含 "delta_summary":"本次PR变更一句话", '
+    needs_hint = ""
+    if needs_blurb:
+        needs_hint = (
+            f"以下接口无代码注释，interface_blurbs 须逐条给出中文功能说明，不得遗漏："
+            f"{', '.join(needs_blurb)}。"
+        )
     return (
         "你是游戏模块文档助手。仅返回 JSON，不要 markdown 代码块。"
         f'格式: {{{delta_hint}"overview_paragraphs":["..."], "layer_roles":{{"层名":"..."}}, '
         '"interface_blurbs":{"接口名":"一句功能说明"}}}。'
         "overview 每段不超过120字；interface_blurbs 每条不超过80字。"
-        "interface_blurbs 写自然中文功能说明，禁止「自动生成」「待核对」等占位语。"
+        "interface_blurbs 须为自然中文（如「加入房间响应，返回 roomInfo 房间信息」），"
+        "禁止英文直译接口名、禁止「字段含」、禁止「自动生成」「待核对」等后缀。"
+        f"{needs_hint}"
         "不得编造 context 中不存在的接口名或层名。\n"
         + json.dumps(compact, ensure_ascii=False)[:4000]
     )
@@ -231,11 +341,11 @@ def enrich_context(context: dict[str, Any]) -> dict[str, Any]:
         if comment:
             blurbs[name] = comment
         elif item.get("kind") == "enum":
-            blurbs[name] = f"{_camel_to_words(name)} 枚举：{', '.join(members[:5])}"[
+            blurbs[name] = f"{_name_to_chinese_label(name)} 枚举：{'、'.join(members[:5])}"[
                 :_MAX_BLURB_LEN
             ]
         else:
-            blurbs[name] = f"{_camel_to_words(name)} 类型约束"[:_MAX_BLURB_LEN]
+            blurbs[name] = f"{_name_to_chinese_label(name)} 类型约束"[: _MAX_BLURB_LEN]
 
     agent_data: dict[str, Any] = {}
     if need_agent(context):
@@ -259,8 +369,13 @@ def enrich_context(context: dict[str, Any]) -> dict[str, Any]:
             layer["role"] = overrides[layer["name"]]
 
     for name, blurb in (agent_data.get("interface_blurbs") or {}).items():
-        if name in blurbs:
-            blurbs[name] = _sanitize_blurb(blurb)
+        if name not in blurbs:
+            continue
+        if _iface_source_comment(context, name):
+            continue
+        cleaned = _sanitize_blurb(blurb)
+        if cleaned:
+            blurbs[name] = cleaned
 
     for name in list(blurbs.keys()):
         blurbs[name] = _sanitize_blurb(blurbs[name])
