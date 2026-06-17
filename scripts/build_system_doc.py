@@ -6,7 +6,6 @@ from __future__ import annotations
 import hashlib
 import html
 import json
-import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -14,13 +13,24 @@ from typing import Any
 from extract_code import extract_from_sources, extract_type_comment
 from module_doc_agent import enrich_context
 from module_doc_layers import infer_module_layers
-
-CI_MARKER = "（CI生成，待审查）"
+from module_doc_placement import (
+    SECTION_DATA,
+    SECTION_FUNC,
+    SECTION_LAYERS,
+    SECTION_OVERVIEW,
+    system_design_doc_is_empty,
+)
 
 _DIRECTION_LABEL = {
     "client": "客户端→服务端",
     "server": "服务端→客户端",
 }
+
+
+def format_update_date(when: datetime | None = None) -> str:
+    """e.g. 2026-6-16 更新 (no zero-padding on month/day)."""
+    dt = when or datetime.now(timezone.utc)
+    return f"{dt.year}-{dt.month}-{dt.day} 更新"
 
 
 def system_doc_fingerprint(files: dict[str, str], repo: str) -> str:
@@ -43,20 +53,23 @@ def system_doc_fingerprint(files: dict[str, str], repo: str) -> str:
     return "sha256:" + hashlib.sha256(raw.encode()).hexdigest()
 
 
-def build_module_doc_context(
-    *,
-    module: str,
-    repo: str,
-    registry: dict[str, Any],
-    repo_root: Path,
-    changed_paths: list[str],
+def _files_for_interface_extraction(
     files: dict[str, str],
+    changed_paths: list[str],
     mode: str,
-) -> dict[str, Any]:
-    code = extract_from_sources(files, repo=repo)
-    mod_map = (registry.get("module_map") or {}).get(module) or {}
-    mod_info = (registry.get("modules") or {}).get(module) or {}
+) -> dict[str, str]:
+    if mode == "full":
+        return files
+    changed = {p.replace("\\", "/") for p in changed_paths}
+    return {k: v for k, v in files.items() if k.replace("\\", "/") in changed}
 
+
+def _extract_interfaces(
+    files: dict[str, str],
+    *,
+    repo: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    code = extract_from_sources(files, repo=repo)
     functional: list[dict[str, Any]] = []
     for msg in code.get("messages", []):
         path = msg.get("file") or ""
@@ -102,13 +115,32 @@ def build_module_doc_context(
                 "file": path,
             }
         )
+    return functional, data
 
+
+def build_module_doc_context(
+    *,
+    module: str,
+    repo: str,
+    registry: dict[str, Any],
+    repo_root: Path,
+    changed_paths: list[str],
+    files: dict[str, str],
+    mode: str,
+) -> dict[str, Any]:
+    mod_map = (registry.get("module_map") or {}).get(module) or {}
+    mod_info = (registry.get("modules") or {}).get(module) or {}
+
+    iface_files = _files_for_interface_extraction(files, changed_paths, mode)
+    functional, data = _extract_interfaces(iface_files, repo=repo)
+
+    layer_paths = None if mode == "full" else changed_paths
     layer_info = infer_module_layers(
         module=module,
         repo=repo,
         registry=registry,
         repo_root=repo_root,
-        changed_paths=changed_paths,
+        changed_paths=layer_paths,
     )
 
     ctx: dict[str, Any] = {
@@ -123,6 +155,7 @@ def build_module_doc_context(
         "changed_layers": layer_info["changed_layers"],
         "registry_notes": mod_map.get("_notes") or "",
         "system_design_obj": mod_info.get("system_design_obj"),
+        "update_date": format_update_date(),
     }
     return enrich_context(ctx)
 
@@ -131,16 +164,28 @@ def _esc(text: str) -> str:
     return html.escape(text or "")
 
 
-def _layer_section(context: dict[str, Any], *, delta_only: bool) -> str:
+def _dated_heading(context: dict[str, Any]) -> str:
+    label = context.get("update_date") or format_update_date()
+    return f"<h3>{_esc(label)}</h3>"
+
+
+def _overview_body(context: dict[str, Any], *, include_repo: bool) -> str:
+    parts: list[str] = [_dated_heading(context)]
+    if include_repo:
+        parts.append(f"<p>仓库：{_esc(context.get('repo', ''))}</p>")
+    for para in context.get("overview_paragraphs") or []:
+        parts.append(f"<p>{_esc(para)}</p>")
+    return "".join(parts)
+
+
+def _layers_body(context: dict[str, Any], *, only_changed: bool) -> str:
     layers = context.get("layers") or []
     changed_layers = set(context.get("changed_layers") or [])
-    if delta_only and not changed_layers:
+    if only_changed and not changed_layers:
         return ""
-    parts: list[str] = []
-    title = "架构变更" if delta_only else "分层架构"
-    parts.append(f"<h2>{_esc(title)}{CI_MARKER if not delta_only else ''}</h2>")
+    parts: list[str] = [_dated_heading(context)]
     for layer in layers:
-        if delta_only and layer["name"] not in changed_layers:
+        if only_changed and layer["name"] not in changed_layers:
             continue
         parts.append(f"<p><b>{_esc(layer['name'])}</b>：{_esc(layer.get('role', ''))}</p>")
         if layer.get("files"):
@@ -148,7 +193,7 @@ def _layer_section(context: dict[str, Any], *, delta_only: bool) -> str:
                 f"<li>{_esc(Path(f).name)}</li>" for f in layer["files"][:8]
             )
             parts.append(f"<ul>{items}</ul>")
-    return "".join(parts)
+    return "".join(parts) if len(parts) > 1 else ""
 
 
 def _interface_lists(context: dict[str, Any]) -> tuple[str, str]:
@@ -166,55 +211,80 @@ def _interface_lists(context: dict[str, Any]) -> tuple[str, str]:
         name = item["name"]
         blurb = blurbs.get(name) or item.get("source_comment") or name
         data_items.append(f"<li><b>{_esc(name)}</b>：{_esc(blurb)}</li>")
-    func_xml = f"<ul>{''.join(func_items)}</ul>" if func_items else "<p>（无）</p>"
-    data_xml = f"<ul>{''.join(data_items)}</ul>" if data_items else "<p>（无）</p>"
+    func_xml = f"<ul>{''.join(func_items)}</ul>" if func_items else ""
+    data_xml = f"<ul>{''.join(data_items)}</ul>" if data_items else ""
     return func_xml, data_xml
 
 
-def build_docx_xml(context: dict[str, Any]) -> str:
-    module = context["module"]
-    repo = context["repo"]
-    mode = context.get("mode", "delta")
+def build_initial_docx(context: dict[str, Any]) -> str:
+    """Full skeleton for a new/empty sub-doc (no document h1 — wiki title is the module name)."""
     func_xml, data_xml = _interface_lists(context)
-    parts: list[str] = []
-
-    if mode == "full":
-        parts.append(f"<h1>{_esc(module)}模块{CI_MARKER}</h1>")
-        parts.append(f"<h2>模块概览{CI_MARKER}</h2>")
-        parts.append(f"<p>仓库：{_esc(repo)}</p>")
-        for para in context.get("overview_paragraphs") or []:
-            parts.append(f"<p>{_esc(para)}</p>")
-        parts.append(_layer_section(context, delta_only=False))
-        parts.append(f"<h2>功能接口{CI_MARKER}</h2>")
-        parts.append(func_xml)
-        parts.append(f"<h2>数据接口{CI_MARKER}</h2>")
-        parts.append(data_xml)
-    else:
-        ts = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        parts.append("<hr/>")
-        parts.append(f"<h2>{ts} 变更{CI_MARKER}</h2>")
-        parts.append(f"<h3>变更说明</h3>")
-        for para in context.get("overview_paragraphs") or []:
-            parts.append(f"<p>{_esc(para)}</p>")
-        arch = _layer_section(context, delta_only=True)
-        if arch:
-            parts.append(arch)
-        if context.get("functional_interfaces"):
-            parts.append(f"<h3>功能接口</h3>")
-            parts.append(func_xml)
-        if context.get("data_interfaces"):
-            parts.append(f"<h3>数据接口</h3>")
-            parts.append(data_xml)
-
+    parts: list[str] = [
+        f"<h2>{SECTION_OVERVIEW}</h2>",
+        _overview_body(context, include_repo=True),
+        f"<h2>{SECTION_LAYERS}</h2>",
+        _layers_body(context, only_changed=False) or _dated_heading(context) + "<p>（暂无分层信息）</p>",
+        f"<h2>{SECTION_FUNC}</h2>",
+        _dated_heading(context),
+        func_xml or "<p>（无）</p>",
+        f"<h2>{SECTION_DATA}</h2>",
+        _dated_heading(context),
+        data_xml or "<p>（无）</p>",
+    ]
     return "".join(parts)
 
 
-def resolve_mode(registry: dict[str, Any], module: str) -> str:
-    mod_info = (registry.get("modules") or {}).get(module) or {}
-    token = mod_info.get("system_design_obj")
+def build_section_updates(context: dict[str, Any]) -> dict[str, str]:
+    """Dated fragments to insert under each h2 section (delta mode)."""
+    updates: dict[str, str] = {}
+    updates[SECTION_OVERVIEW] = _overview_body(context, include_repo=False)
+
+    layers = _layers_body(context, only_changed=True)
+    if layers:
+        updates[SECTION_LAYERS] = layers
+
+    func_xml, data_xml = _interface_lists(context)
+    if func_xml:
+        updates[SECTION_FUNC] = _dated_heading(context) + func_xml
+    if data_xml:
+        updates[SECTION_DATA] = _dated_heading(context) + data_xml
+    return updates
+
+
+def build_docx_xml(context: dict[str, Any]) -> str:
+    """Legacy single blob (local preview); prefer build_initial_docx / build_section_updates."""
+    mode = context.get("mode", "delta")
+    if mode == "full":
+        return build_initial_docx(context)
+    return "".join(build_section_updates(context).values())
+
+
+def resolve_system_design_obj(registry: dict[str, Any], module: str) -> str | None:
+    info = (registry.get("modules") or {}).get(module) or {}
+    token = info.get("system_design_obj")
     if token and str(token).strip().lower() not in ("", "null", "none"):
+        return str(token)
+    return None
+
+
+def resolve_mode(
+    registry: dict[str, Any],
+    module: str,
+    *,
+    check_doc_content: bool = False,
+) -> str:
+    """
+    full — no sub-doc token, or sub-doc exists but has no section content yet.
+    delta — sub-doc already has 模块概览 (or other system-design sections).
+    """
+    token = resolve_system_design_obj(registry, module)
+    if not token:
+        return "full"
+    if not check_doc_content:
         return "delta"
-    return "full"
+    if system_design_doc_is_empty(token):
+        return "full"
+    return "delta"
 
 
 def main() -> None:
@@ -248,8 +318,19 @@ def main() -> None:
         files=files,
         mode=mode,
     )
-    xml = build_docx_xml(ctx)
-    print(json.dumps({"mode": mode, "context": ctx, "docx_draft": xml}, ensure_ascii=False, indent=2))
+    if mode == "full":
+        xml = build_initial_docx(ctx)
+        sections = None
+    else:
+        sections = build_section_updates(ctx)
+        xml = build_docx_xml(ctx)
+    print(
+        json.dumps(
+            {"mode": mode, "context": ctx, "docx_draft": xml, "section_updates": sections},
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
 
 
 if __name__ == "__main__":

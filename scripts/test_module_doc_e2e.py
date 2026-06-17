@@ -16,8 +16,9 @@ sys.path.insert(0, str(SCRIPT_DIR))
 import yaml  # noqa: E402
 
 from build_system_doc import (  # noqa: E402
-    build_docx_xml,
+    build_initial_docx,
     build_module_doc_context,
+    build_section_updates,
     resolve_mode,
 )
 
@@ -63,7 +64,7 @@ def api_post(path: str, body: dict) -> tuple[int, dict | str]:
 def main() -> None:
     registry = yaml.safe_load(REGISTRY.read_text(encoding="utf-8"))
     files = {CHANGED: FAKE_CODE}
-    mode = resolve_mode(registry, MODULE)
+    mode = resolve_mode(registry, MODULE, check_doc_content=False)
     if os.environ.get("E2E_FORCE_MODE"):
         mode = os.environ["E2E_FORCE_MODE"]
 
@@ -76,18 +77,19 @@ def main() -> None:
         files=files,
         mode=mode,
     )
-    docx = build_docx_xml(ctx)
-    print(f"mode={mode} agent_used={ctx.get('agent_used')} docx_len={len(docx)}")
-    print("--- docx preview (first 500 chars) ---")
-    print(docx[:500])
+    preview = (
+        build_initial_docx(ctx) if mode == "full" else "".join(build_section_updates(ctx).values())
+    )
+    print(f"mode={mode} agent_used={ctx.get('agent_used')} preview_len={len(preview)}")
+    print("--- preview (first 500 chars) ---")
+    print(preview[:500])
 
-    # Try server-side build (files only) when ECS has latest api-server.
     code, resp_files = api_post(
         "/jobs/module-system-doc-sync",
         {
             "module": MODULE,
             "repo": REPO,
-            "mode": mode,
+            "mode": "auto",
             "files_changed": [CHANGED],
             "files": files,
         },
@@ -96,23 +98,11 @@ def main() -> None:
     print(json.dumps(resp_files, ensure_ascii=False, indent=2))
 
     if code >= 400:
-        print("\nFallback: POST pre-built docx_draft (legacy ECS API)")
-        code2, resp_docx = api_post(
-            "/jobs/module-system-doc-sync",
-            {
-                "module": MODULE,
-                "repo": REPO,
-                "mode": mode,
-                "files_changed": [CHANGED],
-                "docx_draft": docx,
-            },
-        )
-        print(f"[docx_draft POST] HTTP {code2}")
-        print(json.dumps(resp_docx, ensure_ascii=False, indent=2))
-        if code2 >= 400:
-            sys.exit(1)
-    else:
-        print("\nServer-side build succeeded on ECS.")
+        print("\nPOST failed — deploy latest api-server to ECS and retry.")
+        sys.exit(1)
+    print("\nServer-side build succeeded on ECS.")
+    if resp_files.get("sections_updated"):
+        print("sections_updated:", resp_files["sections_updated"])
 
 
 if __name__ == "__main__":

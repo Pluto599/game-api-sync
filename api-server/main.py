@@ -28,8 +28,9 @@ from compare_targets import scope_type_names_from_code  # noqa: E402
 from extract_code import extract_from_sources  # noqa: E402
 from doc_sync import sync_doc_draft  # noqa: E402
 from build_system_doc import (  # noqa: E402
-    build_docx_xml,
+    build_initial_docx,
     build_module_doc_context,
+    build_section_updates,
     resolve_mode,
 )
 from wiki_module_doc import sync_system_doc  # noqa: E402
@@ -66,6 +67,7 @@ class ModuleSystemDocSyncBody(BaseModel):
     files_changed: list[str] = []
     docx_draft: str | None = None
     files: dict[str, str] | None = None
+    glob_files: dict[str, str] | None = None
 
 
 def _compare_from_cache(body: CompareBody) -> dict[str, Any]:
@@ -305,7 +307,7 @@ def module_system_doc_sync(
     body: ModuleSystemDocSyncBody,
     authorization: str | None = Header(None),
 ) -> dict[str, Any]:
-    """Build (optional) and append module system-design DocxXML (creator lark-cli profile)."""
+    """Build (optional) and write module system-design DocxXML under section headings."""
     check_auth(authorization)
     has_draft = bool(body.docx_draft and body.docx_draft.strip())
     has_files = bool(body.files)
@@ -314,27 +316,39 @@ def module_system_doc_sync(
 
     reg = load_registry(REGISTRY)
     module = body.module.strip()
-    mode = body.mode if body.mode in ("full", "delta") else resolve_mode(reg, module)
+    mode = (
+        body.mode
+        if body.mode in ("full", "delta")
+        else resolve_mode(reg, module, check_doc_content=True)
+    )
     files_changed = body.files_changed or sorted((body.files or {}).keys())
-    docx = body.docx_draft or ""
+    initial_docx: str | None = body.docx_draft or None
+    section_updates: dict[str, str] | None = None
     context_summary: dict[str, Any] | None = None
 
     if not has_draft and has_files:
+        build_files = dict(body.files or {})
+        if mode == "full" and body.glob_files:
+            build_files = {**body.glob_files, **build_files}
         ctx = build_module_doc_context(
             module=module,
             repo=body.repo,
             registry=reg,
             repo_root=Path("/tmp"),
             changed_paths=files_changed,
-            files=body.files or {},
+            files=build_files,
             mode=mode,
         )
-        docx = build_docx_xml(ctx)
+        if mode == "full":
+            initial_docx = build_initial_docx(ctx)
+        else:
+            section_updates = build_section_updates(ctx)
         context_summary = {
             "agent_used": ctx.get("agent_used"),
             "agent_requested": ctx.get("agent_requested"),
             "functional": len(ctx.get("functional_interfaces") or []),
             "data": len(ctx.get("data_interfaces") or []),
+            "sections": list((section_updates or {}).keys()),
         }
 
     try:
@@ -342,9 +356,10 @@ def module_system_doc_sync(
             REGISTRY,
             module=module,
             repo=body.repo,
-            docx_draft=docx,
             files_changed=files_changed,
             mode=mode,
+            initial_docx=initial_docx,
+            section_updates=section_updates,
         )
         if context_summary:
             result["build"] = context_summary

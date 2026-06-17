@@ -16,9 +16,10 @@ SCRIPT_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPT_DIR))
 
 from build_system_doc import (  # noqa: E402
-    resolve_mode,
+    resolve_system_design_obj,
     system_doc_fingerprint,
 )
+from registry_globs import collect_module_files  # noqa: E402
 from ci.gate import (  # noqa: E402
     discover_orphans,
     git_changed_files,
@@ -74,24 +75,36 @@ def run_module(
     if not changed_norm:
         return {"module": module, "skipped": True, "reason": "no_changed_files"}
 
-    files = collect_changed_files(repo_root, changed_norm)
-    if not files:
+    changed_files = collect_changed_files(repo_root, changed_norm)
+    if not changed_files:
         return {"module": module, "skipped": True, "reason": "no_readable_files"}
 
-    fp = system_doc_fingerprint(files, repo)
+    glob_files: dict[str, str] = {}
+    try:
+        glob_files = collect_module_files(repo_root, registry, module, repo)
+    except (ValueError, OSError):
+        pass
+
+    reg_token = resolve_system_design_obj(registry, module)
+    if reg_token:
+        files = changed_files
+    else:
+        files = {**glob_files, **changed_files} if glob_files else changed_files
+
+    fp = system_doc_fingerprint(changed_files, repo)
     state_path = repo_root / ".api-sync" / "state-system-doc.json"
     state = read_state(state_path)
     prev = state.get(module) or {}
     if prev.get("fingerprint") == fp:
         return {"module": module, "skipped": True, "reason": "fingerprint_unchanged"}
 
-    mode = resolve_mode(registry, module)
     sync_body = {
         "module": module,
         "repo": repo,
-        "mode": mode,
+        "mode": "auto",
         "files_changed": changed_norm,
         "files": files,
+        "glob_files": glob_files or None,
     }
     sync_result = _api("POST", "/jobs/module-system-doc-sync", sync_body)
 
@@ -105,13 +118,14 @@ def run_module(
     build_info = sync_result.get("build") or {}
     return {
         "module": module,
-        "mode": mode,
+        "mode": sync_result.get("mode"),
         "fingerprint": fp,
         "sync": sync_result,
         "context_summary": {
             "functional": build_info.get("functional", 0),
             "data": build_info.get("data", 0),
             "agent_used": build_info.get("agent_used"),
+            "sections": build_info.get("sections"),
         },
     }
 

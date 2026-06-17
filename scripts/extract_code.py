@@ -258,13 +258,17 @@ def _parse_enum_members(body: str) -> list[dict[str, str]]:
 def _extract_csharp_summary_before(text: str, pos: int) -> str | None:
     """XML doc /// <summary> immediately preceding pos."""
     chunk = text[max(0, pos - 800) : pos]
-    m = re.search(
-        r"///\s*<summary>\s*(.*?)\s*</summary>",
-        chunk,
-        re.DOTALL | re.IGNORECASE,
+    matches = list(
+        re.finditer(
+            r"///\s*<summary>\s*(.*?)\s*</summary>",
+            chunk,
+            re.DOTALL | re.IGNORECASE,
+        )
     )
-    if not m:
+    if not matches:
         return None
+    # Closest summary block to the type declaration (not an earlier class in the same file).
+    m = matches[-1]
     return re.sub(r"\s+", " ", m.group(1).strip()) or None
 
 
