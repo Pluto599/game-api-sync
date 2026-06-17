@@ -34,6 +34,8 @@ SECTION_INSERT_ORDER = (
 
 _BLOCK_ID = re.compile(r'\bid="(blk[^"]+)"')
 _H2 = re.compile(r'<h2\s+id="([^"]+)"[^>]*>(.*?)</h2>', re.DOTALL | re.IGNORECASE)
+_H3 = re.compile(r"<h3[^>]*>(.*?)</h3>", re.DOTALL | re.IGNORECASE)
+_BOLD = re.compile(r"<b>([^<]+)</b>")
 
 
 def _plain_heading(inner: str) -> str:
@@ -140,6 +142,74 @@ def document_end_anchor(doc_token: str) -> str | None:
     return _last_block_id_in_xml(outline)
 
 
+def fetch_section_content(doc_token: str, section_title: str) -> str:
+    try:
+        outline = fetch_doc_content(doc_token, scope="outline")
+    except (RuntimeError, json.JSONDecodeError, OSError):
+        return ""
+    h2_block_id: str | None = None
+    for title, block_id in parse_h2_sections(outline):
+        if title == section_title:
+            h2_block_id = block_id
+            break
+    if not h2_block_id:
+        return ""
+    try:
+        return fetch_doc_content(
+            doc_token, scope="section", start_block_id=h2_block_id
+        )
+    except (RuntimeError, json.JSONDecodeError, OSError):
+        return ""
+
+
+def _h3_label(fragment: str) -> str | None:
+    m = _H3.search(fragment)
+    return _plain_heading(m.group(1)) if m else None
+
+
+def _last_dated_block(section_xml: str) -> str:
+    matches = list(_H3.finditer(section_xml))
+    if not matches:
+        return ""
+    return section_xml[matches[-1].start() :]
+
+
+def _interface_names_from_html(xml: str) -> frozenset[str]:
+    return frozenset(_BOLD.findall(xml))
+
+
+def should_skip_section_insert(
+    doc_token: str, section_title: str, fragment: str
+) -> tuple[bool, str]:
+    """
+    Skip duplicate delta inserts:
+    - 功能/数据接口：最近一次块已包含相同接口名集合
+    - 其他章节：最近一次块与本次 h3 时间戳相同（同分钟重复跑）
+    """
+    section_xml = fetch_section_content(doc_token, section_title)
+    if not section_xml.strip():
+        return False, ""
+    last_block = _last_dated_block(section_xml)
+    if not last_block:
+        return False, ""
+
+    frag_names = _interface_names_from_html(fragment)
+    last_names = _interface_names_from_html(last_block)
+    if (
+        section_title in (SECTION_FUNC, SECTION_DATA)
+        and frag_names
+        and frag_names == last_names
+    ):
+        return True, "duplicate_interface_names"
+
+    frag_h3 = _h3_label(fragment)
+    last_h3 = _h3_label(last_block)
+    if frag_h3 and last_h3 and frag_h3 == last_h3:
+        return True, "duplicate_timestamp"
+
+    return False, ""
+
+
 def update_system_design_doc(
     doc_token: str,
     *,
@@ -159,9 +229,14 @@ def update_system_design_doc(
         raise ValueError("section_updates required for delta mode")
 
     insert_results: list[dict[str, Any]] = []
+    skipped_sections: list[dict[str, str]] = []
     for section in SECTION_INSERT_ORDER:
         fragment = updates.get(section)
         if not fragment or not fragment.strip():
+            continue
+        skip, reason = should_skip_section_insert(doc_token, section, fragment.strip())
+        if skip:
+            skipped_sections.append({"section": section, "reason": reason})
             continue
         anchor = resolve_section_insert_anchor(doc_token, section)
         if anchor:
@@ -191,7 +266,18 @@ def update_system_design_doc(
             r["section"] = section
         insert_results.append(r)
 
-    return {
+    if not insert_results:
+        return {
+            "ok": True,
+            "doc_token": doc_token,
+            "mode": "delta",
+            "skipped": True,
+            "reason": "all_sections_deduplicated",
+            "sections_skipped": skipped_sections,
+            "lark_profile": LARK_PROFILE,
+        }
+
+    out: dict[str, Any] = {
         "ok": True,
         "doc_token": doc_token,
         "mode": "delta",
@@ -199,6 +285,9 @@ def update_system_design_doc(
         "inserts": insert_results,
         "lark_profile": LARK_PROFILE,
     }
+    if skipped_sections:
+        out["sections_skipped"] = skipped_sections
+    return out
 
 
 def _run_update(

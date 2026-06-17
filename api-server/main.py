@@ -18,6 +18,7 @@ app = FastAPI(title="game-api-sync")
 TOKEN = os.environ.get("API_SYNC_TOKEN", "")
 CACHE = Path(os.environ.get("API_SYNC_CACHE", "/opt/api-sync/cache"))
 SNAPSHOT_DIR = CACHE / "snapshots"
+MODULE_DOC_FP_DIR = CACHE / "module-doc-fingerprint"
 REGISTRY = Path(os.environ.get("API_SYNC_REGISTRY", "/opt/api-sync/config/wiki-registry.yaml"))
 SCRIPTS_DIR = Path(os.environ.get("API_SYNC_SCRIPTS", "/opt/api-sync/scripts"))
 REFRESH_SCRIPT = SCRIPTS_DIR / "refresh_all_snapshots.py"
@@ -32,6 +33,7 @@ from build_system_doc import (  # noqa: E402
     build_module_doc_context,
     build_section_updates,
     resolve_mode,
+    system_doc_fingerprint,
 )
 from wiki_module_doc import sync_system_doc  # noqa: E402
 from registry_globs import load_registry, obj_token_to_modules  # noqa: E402
@@ -102,6 +104,30 @@ def check_auth(authorization: str | None) -> None:
         return
     if not authorization or authorization != f"Bearer {TOKEN}":
         raise HTTPException(status_code=401, detail="unauthorized")
+
+
+def _module_doc_fp_path(module: str) -> Path:
+    safe = module.replace("/", "_")
+    return MODULE_DOC_FP_DIR / f"{safe}.json"
+
+
+def _read_module_doc_fingerprint(module: str) -> str | None:
+    path = _module_doc_fp_path(module)
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data.get("fingerprint")
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def _write_module_doc_fingerprint(module: str, fingerprint: str, *, mode: str) -> None:
+    MODULE_DOC_FP_DIR.mkdir(parents=True, exist_ok=True)
+    _module_doc_fp_path(module).write_text(
+        json.dumps({"fingerprint": fingerprint, "mode": mode}, ensure_ascii=False),
+        encoding="utf-8",
+    )
 
 
 @app.get("/health")
@@ -365,6 +391,23 @@ def module_system_doc_sync(
             "data": len(ctx.get("data_interfaces") or []),
             "sections": list((section_updates or {}).keys()),
         }
+        if mode == "delta":
+            changed_files = {
+                p: (body.files or {})[p]
+                for p in files_changed
+                if p in (body.files or {})
+            }
+            fp = system_doc_fingerprint(changed_files, body.repo)
+            if fp == _read_module_doc_fingerprint(module):
+                return {
+                    "module": module,
+                    "repo": body.repo,
+                    "mode": mode,
+                    "skipped": True,
+                    "reason": "fingerprint_unchanged",
+                    "fingerprint": fp,
+                    "build": context_summary,
+                }
 
     try:
         result = sync_system_doc(
@@ -378,6 +421,21 @@ def module_system_doc_sync(
         )
         if context_summary:
             result["build"] = context_summary
+        if (
+            not result.get("skipped")
+            and mode == "delta"
+            and has_files
+        ):
+            changed_files = {
+                p: (body.files or {})[p]
+                for p in files_changed
+                if p in (body.files or {})
+            }
+            _write_module_doc_fingerprint(
+                module,
+                system_doc_fingerprint(changed_files, body.repo),
+                mode=mode,
+            )
         return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e

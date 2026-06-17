@@ -20,7 +20,15 @@ from build_system_doc import (
 from extract_code import extract_type_comment
 from module_doc_layers import infer_module_layers
 from module_doc_agent import agent_enabled, heuristic_interface_blurb, need_agent
-from module_doc_placement import parse_h2_sections, system_design_doc_is_empty
+from module_doc_placement import (
+    SECTION_FUNC,
+    _h3_label,
+    _interface_names_from_html,
+    _last_dated_block,
+    parse_h2_sections,
+    should_skip_section_insert,
+    system_design_doc_is_empty,
+)
 
 
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "battle_client.cs"
@@ -150,6 +158,45 @@ class TestModuleDocPlacement(unittest.TestCase):
             return_value='<h2 id="b">模块概览</h2>',
         ):
             self.assertFalse(system_design_doc_is_empty("tok"))
+
+    def test_skip_duplicate_interface_block(self) -> None:
+        from unittest import mock
+
+        section_xml = (
+            '<h3>2026-6-17 12:36 更新</h3>'
+            "<ul><li><b>OpenShopReq</b>：a</li><li><b>BuyItemReq</b>：b</li></ul>"
+        )
+        fragment = (
+            '<h3>2026-6-17 12:37 更新</h3>'
+            "<ul><li><b>OpenShopReq</b>：c</li><li><b>BuyItemReq</b>：d</li></ul>"
+        )
+        with mock.patch(
+            "module_doc_placement.fetch_section_content", return_value=section_xml
+        ):
+            skip, reason = should_skip_section_insert("tok", SECTION_FUNC, fragment)
+        self.assertTrue(skip)
+        self.assertEqual(reason, "duplicate_interface_names")
+
+    def test_skip_duplicate_timestamp_overview(self) -> None:
+        section_xml = "<h3>2026-6-17 12:36 更新</h3><p>第一次概览</p>"
+        fragment = "<h3>2026-6-17 12:36 更新</h3><p>第二次概览</p>"
+        from unittest import mock
+
+        from module_doc_placement import SECTION_OVERVIEW
+
+        with mock.patch(
+            "module_doc_placement.fetch_section_content", return_value=section_xml
+        ):
+            skip, reason = should_skip_section_insert("tok", SECTION_OVERVIEW, fragment)
+        self.assertTrue(skip)
+        self.assertEqual(reason, "duplicate_timestamp")
+
+    def test_last_dated_block_helpers(self) -> None:
+        xml = "<h3>2026-6-17 12:00 更新</h3><p>old</p><h3>2026-6-17 12:36 更新</h3><p>new</p>"
+        block = _last_dated_block(xml)
+        self.assertIn("new", block)
+        self.assertEqual(_h3_label(block), "2026-6-17 12:36 更新")
+        self.assertEqual(_interface_names_from_html(block), frozenset())
 
 
 class TestModuleDocLayers(unittest.TestCase):
