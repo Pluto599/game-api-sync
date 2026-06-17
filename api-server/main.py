@@ -422,9 +422,12 @@ def module_system_doc_sync(
         if context_summary:
             result["build"] = context_summary
         if (
-            not result.get("skipped")
-            and mode == "delta"
+            mode == "delta"
             and has_files
+            and (
+                not result.get("skipped")
+                or result.get("reason") == "all_sections_deduplicated"
+            )
         ):
             changed_files = {
                 p: (body.files or {})[p]

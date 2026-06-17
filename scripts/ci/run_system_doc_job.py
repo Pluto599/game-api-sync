@@ -108,6 +108,25 @@ def run_module(
     }
     sync_result = _api("POST", "/jobs/module-system-doc-sync", sync_body)
 
+    if sync_result.get("skipped") and sync_result.get("reason") in (
+        "fingerprint_unchanged",
+        "all_sections_deduplicated",
+    ):
+        state[module] = {
+            "fingerprint": fp,
+            "mode": sync_result.get("mode"),
+            "system_design_obj": sync_result.get("system_design_obj"),
+        }
+        write_state(state_path, state)
+        return {
+            "module": module,
+            "skipped": True,
+            "reason": sync_result.get("reason"),
+            "mode": sync_result.get("mode"),
+            "fingerprint": fp,
+            "sync": sync_result,
+        }
+
     state[module] = {
         "fingerprint": fp,
         "mode": sync_result.get("mode"),

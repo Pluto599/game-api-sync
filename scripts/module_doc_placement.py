@@ -35,7 +35,12 @@ SECTION_INSERT_ORDER = (
 _BLOCK_ID = re.compile(r'\bid="(blk[^"]+)"')
 _H2 = re.compile(r'<h2\s+id="([^"]+)"[^>]*>(.*?)</h2>', re.DOTALL | re.IGNORECASE)
 _H3 = re.compile(r"<h3[^>]*>(.*?)</h3>", re.DOTALL | re.IGNORECASE)
-_BOLD = re.compile(r"<b>([^<]+)</b>")
+_BOLD = re.compile(r"<(?:b|strong)[^>]*>([^<]+)</(?:b|strong)>", re.IGNORECASE)
+_LI_NAME = re.compile(
+    r"<li[^>]*>\s*(?:<(?:b|strong)[^>]*>)?([^<：:\s]+(?:\s+[^<：:\s]+)*?)"
+    r"(?:</(?:b|strong)>)?\s*[：:]",
+    re.IGNORECASE,
+)
 
 
 def _plain_heading(inner: str) -> str:
@@ -174,8 +179,49 @@ def _last_dated_block(section_xml: str) -> str:
     return section_xml[matches[-1].start() :]
 
 
+def _all_dated_blocks(section_xml: str) -> list[str]:
+    matches = list(_H3.finditer(section_xml))
+    if not matches:
+        return []
+    blocks: list[str] = []
+    for i, m in enumerate(matches):
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(section_xml)
+        blocks.append(section_xml[m.start() : end])
+    return blocks
+
+
 def _interface_names_from_html(xml: str) -> frozenset[str]:
-    return frozenset(_BOLD.findall(xml))
+    names = {m.group(1).strip() for m in _BOLD.finditer(xml)}
+    for m in _LI_NAME.finditer(xml):
+        name = m.group(1).strip()
+        if name:
+            names.add(name)
+    return frozenset(names)
+
+
+def _interface_set_key(xml: str) -> str | None:
+    names = _interface_names_from_html(xml)
+    if not names:
+        return None
+    return ",".join(sorted(names))
+
+
+def _body_without_h3(xml: str) -> str:
+    body = re.sub(r"<h3[^>]*>.*?</h3>", "", xml, flags=re.DOTALL | re.IGNORECASE)
+    return re.sub(r"\s+", " ", body).strip()
+
+
+def _normalize_li_text(xml: str) -> str:
+    """Compare list bodies ignoring h3 timestamp and whitespace."""
+    body = _body_without_h3(xml)
+    items = re.findall(r"<li[^>]*>(.*?)</li>", body, flags=re.DOTALL | re.IGNORECASE)
+    normalized: list[str] = []
+    for item in items:
+        plain = re.sub(r"<[^>]+>", "", item)
+        plain = re.sub(r"\s+", " ", plain).strip()
+        if plain:
+            normalized.append(plain)
+    return "|".join(sorted(normalized))
 
 
 def should_skip_section_insert(
@@ -183,29 +229,39 @@ def should_skip_section_insert(
 ) -> tuple[bool, str]:
     """
     Skip duplicate delta inserts:
-    - 功能/数据接口：最近一次块已包含相同接口名集合
-    - 其他章节：最近一次块与本次 h3 时间戳相同（同分钟重复跑）
+    - 功能/数据接口：任一历史 dated 块与本次接口名集合相同
+    - 功能/数据接口：列表正文相同（忽略 h3 时间戳，兼容 strong/b）
+    - 其他章节：任一历史块正文相同，或 h3 时间戳相同（同分钟重复跑）
     """
     section_xml = fetch_section_content(doc_token, section_title)
     if not section_xml.strip():
         return False, ""
-    last_block = _last_dated_block(section_xml)
-    if not last_block:
-        return False, ""
 
-    frag_names = _interface_names_from_html(fragment)
-    last_names = _interface_names_from_html(last_block)
-    if (
-        section_title in (SECTION_FUNC, SECTION_DATA)
-        and frag_names
-        and frag_names == last_names
-    ):
-        return True, "duplicate_interface_names"
-
+    blocks = _all_dated_blocks(section_xml) or ([section_xml] if section_xml.strip() else [])
+    frag_iface_key = _interface_set_key(fragment)
+    frag_li_key = _normalize_li_text(fragment)
+    frag_body = _body_without_h3(fragment)
     frag_h3 = _h3_label(fragment)
-    last_h3 = _h3_label(last_block)
-    if frag_h3 and last_h3 and frag_h3 == last_h3:
-        return True, "duplicate_timestamp"
+
+    if section_title in (SECTION_FUNC, SECTION_DATA):
+        if frag_iface_key:
+            for block in blocks:
+                if _interface_set_key(block) == frag_iface_key:
+                    return True, "duplicate_interface_names"
+        if frag_li_key:
+            for block in blocks:
+                if _normalize_li_text(block) == frag_li_key:
+                    return True, "duplicate_list_content"
+
+    if frag_body:
+        for block in blocks:
+            if _body_without_h3(block) == frag_body:
+                return True, "duplicate_content"
+
+    if frag_h3:
+        for block in blocks:
+            if _h3_label(block) == frag_h3:
+                return True, "duplicate_timestamp"
 
     return False, ""
 

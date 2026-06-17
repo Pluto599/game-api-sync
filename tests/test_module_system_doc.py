@@ -187,6 +187,8 @@ class TestModuleDocPlacement(unittest.TestCase):
         section_xml = (
             '<h3>2026-6-17 12:36 更新</h3>'
             "<ul><li><b>OpenShopReq</b>：a</li><li><b>BuyItemReq</b>：b</li></ul>"
+            '<h3>2026-6-17 12:00 更新</h3>'
+            "<ul><li><b>OtherReq</b>：x</li></ul>"
         )
         fragment = (
             '<h3>2026-6-17 12:37 更新</h3>'
@@ -198,6 +200,42 @@ class TestModuleDocPlacement(unittest.TestCase):
             skip, reason = should_skip_section_insert("tok", SECTION_FUNC, fragment)
         self.assertTrue(skip)
         self.assertEqual(reason, "duplicate_interface_names")
+
+    def test_skip_duplicate_interface_block_strong_tags(self) -> None:
+        from unittest import mock
+
+        section_xml = (
+            '<h3>2026-6-17 12:36 更新</h3>'
+            "<ul><li><strong>JoinRoomResponse</strong>：加入房间响应</li></ul>"
+        )
+        fragment = (
+            '<h3>2026-6-17 12:50 更新</h3>'
+            "<ul><li><strong>JoinRoomResponse</strong>：另一段描述</li></ul>"
+        )
+        with mock.patch(
+            "module_doc_placement.fetch_section_content", return_value=section_xml
+        ):
+            skip, reason = should_skip_section_insert("tok", SECTION_FUNC, fragment)
+        self.assertTrue(skip)
+        self.assertEqual(reason, "duplicate_interface_names")
+
+    def test_skip_duplicate_list_content_same_blurbs(self) -> None:
+        from unittest import mock
+
+        section_xml = (
+            '<h3>2026-6-17 12:36 更新</h3>'
+            "<ul><li><b>A</b>：说明一</li><li><b>B</b>：说明二</li></ul>"
+        )
+        fragment = (
+            '<h3>2026-6-17 13:10 更新</h3>'
+            "<ul><li><b>A</b>：说明一</li><li><b>B</b>：说明二</li></ul>"
+        )
+        with mock.patch(
+            "module_doc_placement.fetch_section_content", return_value=section_xml
+        ):
+            skip, reason = should_skip_section_insert("tok", SECTION_FUNC, fragment)
+        self.assertTrue(skip)
+        self.assertIn(reason, ("duplicate_list_content", "duplicate_interface_names"))
 
     def test_skip_duplicate_timestamp_overview(self) -> None:
         section_xml = "<h3>2026-6-17 12:36 更新</h3><p>第一次概览</p>"
